@@ -1,0 +1,21 @@
+## xloginrc file. First line not empty nor commented will be executed
+# first valid line is command to run. No extra spaces allowed.
+# line could start with : for refering another config file. LXDE configs match ":lxde*"
+
+# dafault config taken from lxdm
+/etc/xlogin/Xsession
+# startlxde works with systemd and PAM because xlogin.conf (conf overryde of agetty) sets variables as Xsession do, but come back to previous if fails
+#startlxde
+# Others options include
+#/etc/X11/Sessions/lxde
+#xterm
+#xterm -rv
+#openbox
+#fvwm
+
+#redirect to sessionrc file. Valid names for lxde desktop match "lxde*"
+:lxderc
+#don't require shell access by user if don't use backtick or dollar
+:xclientsrc
+
+## last line. Do not delete.

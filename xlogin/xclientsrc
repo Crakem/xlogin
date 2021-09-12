@@ -1,0 +1,9 @@
+#imwheel -f -k -p -b "89"
+xterm -geometry 170x40+0+0
+xterm -geometry 170x34+0+555
+#xclock dont parse well if miss bash (glibc limitation) because doubles quotes (single quotes and dollar fails too)
+xclock -twentyfour -digital -strftime "%k:%M - %a %e %b %G  (%V)" -chime -geometry 246x35+1030+0
+xset b 20 100 10
+*openbox
+
+#last line. Do not remove.

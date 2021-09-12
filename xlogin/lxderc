@@ -1,0 +1,9 @@
+## lxderc file for xloginrc
+# each line is a command to run. Last 'exec' command start with '*'. No extra spaces allowed.
+
+#xterm
+lxpanel -p LXDE
+pcmanfm -p LXDE --desktop
+*openbox --config-file /etc/xdg/openbox/LXDE/rc.xml
+
+## last line. Do not delete.

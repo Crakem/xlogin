@@ -1,0 +1,113 @@
+xlogin display manager
+----------------------
+
+Or xlogin for short, is a display manager for the console. Instead of launch X for logins, we start a login like daemon (xlogin) who attempts to login a 
+user. Works the same as 'login' program but performing basic security checks.
+Those security checks make fail all actions performed by user polkit agent (lxpolkit in lxde) but actions from root running polkit works (eg. automount)
+X Display managers increase too much complexity of login system (X security, widget app as modal window, a lot of dependencies, etc)
+
+xlogin is launched, as login, from getty like program. Takes a single param, username to test for login. After a succesful login tty is freed by xlogin 
+and X is launched on the same tty. Which session is started is configurable via xloginrc. First value found is executed (with exec family functions) 
+Read xloginrc file shipped with xlogin tarball for more options.
+
+Performs session recording (utmp like) if available.
+
+Currently only support a single head, but could very easy to extend.
+
+Have support for PAM. And uses syslog/systemd for error reporting. Only glibc dependent.
+X session could be started without shell access by the logged user, for increased security.
+
+As added feature, perform checks for securing cookie for MIT_MAGIC_COOKIE X authentication. Ánd disable listens of Xserver to tcp and abstract socket.
+
+Tested with lxde on gentoo, archlinux and archlinux32. And worked with mingetty and agetty.
+
+Intended audience: X (desktop) users worried with security.
+
+BUILD
+-----
+
+GNU autotools ready (read INSTALL for step by step guide. This package don't include any test). Some customization is possible, read 'configure --help'. Defaults to use PAM, if available; but could be disabled with --without-pam to configure.
+
+For installing xlogin in /bin/xlogin call configure with options, as user,
+
+$ configure --prefix=/usr --bindir=/bin --sysconfdir=/etc/xlogin
+
+Recomended keep CFLAGS and LDFLAGS as defaults for preserving hardening features.
+
+$ make
+
+Maybe you want to test installing with DESTDIR prior to root install. When ready install as root,
+# make install-strip
+
+
+SETUP
+-----
+- For sysv init, edit /etc/inittab from,
+
+c7:2345:respawn:/sbin/agetty 38400 tty7 linux
+
+to,
+
+c7:2345:respawn:/sbin/agetty 38400 tty7 linux -R -l /bin/xlogin
+
+if you're using mingetty,
+
+c7:2345:respawn:/sbin/mingetty tty7 --loginprog=/bin/xlogin
+
+Adjust to your tty number. After that, run 'telinit q' as root. If tty7 have running a agetty prior to telinit, you have to kill its proccess too.
+
+- For systemd init, a file need get installed on /etc/systemd/system/getty@tty1.service.d/xlogin.conf, for configuring agetty for xlogin (lxde ready).
+Adjust to your tty number. Pick that file from xlogin directory as root,
+# mv /etc/xlogin/xlogin.conf /etc/systemd/system/getty@tty1.service.d/.
+
+- If you are using PAM you need copying login config,
+# cp /etc/pam.d/login /etc/pam.d/xlogin
+
+- xlogin is lxde ready, but if you want to customize, edit /etc/xlogin/xloginrc. Read that file for more hints.
+
+NOTE: After you perform all corrections to your system, you could see a error message 'No session for pid XXX' (or similar) on login.
+If you don't want to see that, remove definition of user polkit agent in lxde application selection (lxpolkit), let that box empty.
+( Go to Start -> Preferences -> Predeterminated applications for LXSession; goto 'Basic applications' tab and blank 'PolicyKit Agent' box, from 'lxpolkit' to empty field)
+You have to do that for each lxde user on your system.
+
+SECURITY SETUP REQUIRED
+-----------------------
+
+- be sure /proc is mounted with options hidepid=2,gid=proc
+gid=proc part is necesary for lxde to work with full desktop (automounting with udisks for example). But if you don't have dbus support compiled could omit it.
+write a line in /etc/fstab like this,
+proc	/proc	proc	nosuid,nodev,noexec,relatime,hidepid=2,gid=proc
+
+- select yama ptrace_scope to 3.
+Edit /etc/sysctl.d/yama.conf, or similar sysctl file, and set
+kernel.yama.ptrace_scope = 3
+
+- if an user can't log in with xlogin, look at syslog messages for problems encountered by xlogin and correct it. With systemd issue a 'loginctl -r' perhaps as root and with systemv look at /var/log/messages or dmesg as root.
+
+
+COPYING
+--------
+
+Copyright (C) 2021  Enrique Dominguez Pinos
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+Read COPYING for full license information.
+
+
+BUGS
+----
+
+Currently beta stage.
+Bugs to crakem8 at gmail dot com
