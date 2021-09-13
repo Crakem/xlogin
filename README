@@ -42,6 +42,9 @@ Maybe you want to test installing with DESTDIR prior to root install. When ready
 
 SETUP
 -----
+
+1. Init
+--------
 - For sysv init, edit /etc/inittab from,
 
 c7:2345:respawn:/sbin/agetty 38400 tty7 linux
@@ -60,18 +63,22 @@ Adjust to your tty number. After that, run 'telinit q' as root. If tty7 have run
 Adjust to your tty number. Pick that file from xlogin directory as root,
 # mv /etc/xlogin/xlogin.conf /etc/systemd/system/getty@tty1.service.d/.
 
-- If you are using PAM you need copying login config,
+Additionally, if you switched to a grahpical target, you have to switch back to multi-user target; as root,
+# systemctl set-default multi-user.target
+
+2. PAM
+------
+
+If you are using PAM you need copying login config,
 # cp /etc/pam.d/login /etc/pam.d/xlogin
 
-- xlogin is lxde ready, but if you want to customize, edit /etc/xlogin/xloginrc. Read that file for more hints.
-
-NOTE: After you perform all corrections to your system, you could see a error message 'No session for pid XXX' (or similar) on login.
-If you don't want to see that, remove definition of user polkit agent in lxde application selection (lxpolkit), let that box empty.
-( Go to Start -> Preferences -> Predeterminated applications for LXSession; goto 'Basic applications' tab and blank 'PolicyKit Agent' box, from 'lxpolkit' to empty field)
-You have to do that for each lxde user on your system.
-
-SECURITY SETUP REQUIRED
+3. xlogin customizacion
 -----------------------
+
+xlogin is lxde ready, but if you want to customize, edit /etc/xlogin/xloginrc. Read that file for more hints.
+
+4. SECURITY SETUP REQUIRED
+--------------------------
 
 - be sure /proc is mounted with options hidepid=2,gid=proc
 gid=proc part is necesary for lxde to work with full desktop (automounting with udisks for example). But if you don't have dbus support compiled could omit it.
@@ -83,6 +90,14 @@ Edit /etc/sysctl.d/yama.conf, or similar sysctl file, and set
 kernel.yama.ptrace_scope = 3
 
 - if an user can't log in with xlogin, look at syslog messages for problems encountered by xlogin and correct it. With systemd issue a 'loginctl -r' perhaps as root and with systemv look at /var/log/messages or dmesg as root.
+
+5. LXSession autostarted applications
+-------------------------------------
+
+After you perform all corrections to your system, you could see a error message 'No session for pid XXX' (or similar) on login.
+If you don't want to see that, remove definition of user polkit agent in lxde application selection (lxpolkit), let that box empty.
+( Go to Start -> Preferences -> Predeterminated applications for LXSession; goto 'Basic applications' tab and blank 'PolicyKit Agent' box, from 'lxpolkit' to empty field)
+You have to do that for each lxde user on your system.
 
 
 COPYING
