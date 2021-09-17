@@ -1,27 +1,42 @@
 xlogin display manager
 ----------------------
 
-Or xlogin for short, is a display manager for the console. Instead of launch X for logins, we start a login like daemon (xlogin) who attempts to login a 
-user. Works the same as 'login' program but performing basic security checks.
+Or xlogin for short, is a lightweight display manager for the console. Instead of launch X for logins, we start a login like daemon (xlogin) who attempts to login a user. Works the same as 'login' program but performing basic security checks.
 Those security checks make fail all actions performed by user polkit agent (lxpolkit in lxde) but actions from root running polkit works (eg. automount)
 X Display managers increase too much complexity of login system (X security, widget app as modal window, a lot of dependencies, etc)
 
-xlogin is launched, as login, from getty like program. Takes a single param, username to test for login. After a succesful login tty is freed by xlogin 
-and X is launched on the same tty. Which session is started is configurable via xloginrc. First value found is executed (with exec family functions) 
-Read xloginrc file shipped with xlogin tarball for more options.
+xlogin is launched, as login, from getty like program. Takes a single param, username to test for login.
+After a succesful login tty is freed by xlogin and X is launched on the same tty.
+
+Which session is started is configurable via xloginrc. First value found is executed (with exec family functions) Read xloginrc file shipped with xlogin tarball for more options.
 
 Performs session recording (utmp like) if available.
 
 Currently only support a single head, but could very easy to extend.
 
-Have support for PAM. And uses syslog/systemd for error reporting. Only glibc dependent.
+Have support for PAM. And uses syslog/systemd for error reporting.
 X session could be started without shell access by the logged user, for increased security.
 
-As added feature, perform checks for securing cookie for MIT_MAGIC_COOKIE X authentication. Ánd disable listens of Xserver to tcp and abstract socket.
+As added feature, perform checks for securing cookie for MIT_MAGIC_COOKIE X authentication. And disable listens of Xserver to tcp and abstract socket.
 
-Tested with lxde on gentoo, archlinux and archlinux32. And worked with mingetty and agetty.
+Tested with lxde on gentoo, archlinux and archlinux32 over Xorg. And worked with mingetty and agetty.
 
 Intended audience: X (desktop) users worried with security.
+
+RUNTIME DEPENDENCIES
+------------------
+
+- glibc
+- mcookie (gentoo pkg: sys-apps/util-linux, arch pkg: util-linux)
+- xauth (gentoo pkg: x11-apps/xauth, arch pkg: xorg-xauth)
+
+BUILD DEPENDENCIES
+------------------
+
+- gcc
+- gnu make
+- glibc
+- pam (optional; if available on build, gets activated)
 
 BUILD
 -----
