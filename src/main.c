@@ -22,7 +22,7 @@
 #endif
 
 #ifndef PACKAGE_VERSION
-#define PACKAGE_VERSION "0.43.1"
+#define PACKAGE_VERSION "0.44.0"
 #endif
 
 #ifndef USE_PAM

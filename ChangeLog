@@ -1,0 +1,4 @@
+v0.44.0
+	- xlogin can work like a static session manager. Start and stop desktop componentes as requested in configs files.
+	- Code refactoring and cleanup
+	- BUG correction
