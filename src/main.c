@@ -198,10 +198,13 @@ static bool got_valid_first_line(const char xloginrc[MAX_PATH], char sessionbin[
 static bool got_valid_proc_line(const char procdir[MAX_PATH],char line[MAX_PATH]);
 static bool validate_fstype(const char *const path, __fsword_t fstype);
 static bool is_proc_secure(void);
-static void fork_prog_(char *const prog[]);
-static void fork_prog(const bool hasShell, char sessionbin[MAX_PATH]);
+static void fork_prog_(char *const prog[], pid_t* child_pid);
+static void fork_prog(const bool hasShell, char sessionbin[MAX_PATH], pid_t* child_pid);
 static bool cmd2buf(const bool eof, char sessionbintmp[MAX_PATH], char sessionbin[MAX_PATH]);
-static bool got_valid_line(const char sessionrc[MAX_PATH], char sessionbin[MAX_PATH],bool (*action)(const bool, const FILE *const, const bool, char[MAX_PATH]));
+static bool got_line_login_action(const bool success, const FILE *const fp, const bool hasShell, char sessionbin[MAX_PATH]);
+static bool got_line_logout_action(const bool success, const FILE *const fp, const bool hasShell, char sessionbin[MAX_PATH]);
+static bool got_valid_line(const bool hasShell, const char sessionrc[MAX_PATH], bool (*action)(const bool, const FILE *const, const bool, char[MAX_PATH]),
+			   char sessionbin[MAX_PATH]);
 static bool include(const char* *const patterns,const char *const str);
 #ifndef USE_PAM
 static bool valid_env_line(const char line[MAX_PATH]);
@@ -1199,7 +1202,7 @@ static bool is_proc_secure(void) {
 /*
  * fork_prog_: fork no wait process prog
  */
-static void fork_prog_(char *const prog[]) {
+static void fork_prog_(char *const prog[], pid_t* child_pid) {
   /*
   //create handlers for save and restoring default handler
   struct sigaction oldHandler,newHandler;
@@ -1226,8 +1229,11 @@ static void fork_prog_(char *const prog[]) {
     ewritelog("Failed to exec child process");
     _exit(EXIT_FAILURE);
   }
-  /*
   //parent
+  if (child_pid!=NULL) {
+    *child_pid=pid;
+  }
+  /*
   //restore original handler
   if (sigaction(SIGCHLD,&oldHandler,NULL)!=0) {
     ewritelog("Failed to restore signal action");
@@ -1239,7 +1245,7 @@ static void fork_prog_(char *const prog[]) {
 /*
  * fork_prog: fork with options
  */
-static void fork_prog(const bool hasShell, char sessionbin[MAX_PATH]) {
+static void fork_prog(const bool hasShell, char sessionbin[MAX_PATH], pid_t* child_pid) {
   //action with values
   if (hasShell) {
     wordexp_t p;
@@ -1249,7 +1255,7 @@ static void fork_prog(const bool hasShell, char sessionbin[MAX_PATH]) {
       _exit(EXIT_FAILURE);
     }
     //printArgv(p.we_wordv);
-    fork_prog_(p.we_wordv);//argv format
+    fork_prog_(p.we_wordv, child_pid);//argv format
     //free resources
     wordfree(&p);
   } else {
@@ -1260,7 +1266,7 @@ static void fork_prog(const bool hasShell, char sessionbin[MAX_PATH]) {
       _exit(EXIT_FAILURE);
     }
     //printArgv(session);
-    fork_prog_(session);
+    fork_prog_(session, child_pid);
     //free resources
     free(session);
     session=NULL;
@@ -1268,7 +1274,7 @@ static void fork_prog(const bool hasShell, char sessionbin[MAX_PATH]) {
 }
 
 /*
- * got_line_login: do login actions
+ * got_line_login_action: do login actions. Run cmds while success to exec line (starting with '*'), cmd returned in sessionbin
  */
 static bool got_line_login_action(const bool success, const FILE *const fp, const bool hasShell, char sessionbin[MAX_PATH]) {
   bool eof=false;
@@ -1281,7 +1287,7 @@ static bool got_line_login_action(const bool success, const FILE *const fp, cons
     eof=true;//get out of while and proceed to close file if remains open
   } else {
     if (sessionbin[0]!='*') {//dont match line to fork
-      fork_prog(hasShell,sessionbin);
+      fork_prog(hasShell,sessionbin,NULL);
     } else { //line to fork in main
       eof=true;
     }
@@ -1290,11 +1296,28 @@ static bool got_line_login_action(const bool success, const FILE *const fp, cons
 }
 
 /*
+ * got_line_logout_action: do login actions. Run cmds while success to end of file
+ */
+static bool got_line_logout_action(const bool success, const FILE *const fp, const bool hasShell, char sessionbin[MAX_PATH]) {
+  bool eof=false;
+  if (!success) {
+    if (fp==NULL) {
+      writelog("Stream error");
+      //} else {//eof
+      //writelog("Error getting valid line from sessionrc file. Did you forgot adding '*' to last executed line?");
+    }
+    eof=true;//get out of while and proceed to close file if remains open
+  } else {
+    fork_prog(hasShell,sessionbin,NULL);
+  }
+  return eof;
+}
+
+/*
  * got_valid_line: read file sessionrc and store last valid line in sessionbin
  */
-static bool got_valid_line(const char sessionrc[MAX_PATH], char sessionbin[MAX_PATH], bool (*action)(const bool, const FILE *const, const bool, char[MAX_PATH])) {
-  //const bool hasShell=has_shell(); //test if we have access to sh
-  const bool hasShell=true; //we wish use wordexp; with no shell fails if subshell is called ($ or ``) but works with ""
+static bool got_valid_line(const bool hasShell, const char sessionrc[MAX_PATH], bool (*action)(const bool, const FILE *const, const bool, char[MAX_PATH]),
+			   char sessionbin[MAX_PATH]) {
   bool eof=false;
 /*
   if (signal(SIGCHLD,SIG_IGN)==SIG_ERR) {//no defuncts (works)
@@ -1457,6 +1480,25 @@ static bool load_pam_env(const struct pamdata *const pampst) {
 #endif
 
 /*
+ * waitpid_with_log
+ */
+static bool waitpid_with_log(const pid_t child_pid) {
+  int status=EXIT_FAILURE;
+  if (waitpid(child_pid,&status,0)==child_pid) {//child returns
+    if (!WIFEXITED(status)) {
+      writelog("Child session process crashed");//non fatal because happens
+    } else{
+      if (WEXITSTATUS(status)!=EXIT_SUCCESS) {
+	vwritelog("Child session process ended with failure (%d)",WEXITSTATUS(status));
+      }
+    }
+  } else {//failed waiting
+    return false;
+  }
+  return true;
+}
+
+/*
  * start user session as user
  */
 static void start_session(struct pamdata *const pampst) {
@@ -1593,24 +1635,30 @@ static void start_session(struct pamdata *const pampst) {
 #endif
   }
   char **session=NULL;
-  char* defsession[]={DEFAULT_SESSION,NULL};
-  bool dynmem=false; //indica si el puntero session es statico (false) o ha obtenido su valor con malloc (true)
+  char sessionbin[MAX_PATH];//full path, maybe, to script or bin read from xloginrc/sessionrc
+  memset(sessionbin,0,MAX_PATH);
+  //const bool hasShell=has_shell(); //test if we have access to sh
+  const bool hasShell=true; //we wish use wordexp; with no shell fails if subshell is called ($ or ``) but works with ""
+  bool need_logout=false;
+  char logout_sessionrc[MAX_PATH];
+  memset(logout_sessionrc,0,MAX_PATH);
   {//get session value
     char xloginrc[MAX_PATH]; //path to xloginrc
-    char sessionbin[MAX_PATH];//full path, maybe, to script or bin read from xloginrc
     memset(xloginrc,0,MAX_PATH);
-    memset(sessionbin,0,MAX_PATH);
-      //test $HOME/.xloginrc and XLOGINDIR/xloginrc
+    //test $HOME/.xloginrc and XLOGINDIR/xloginrc
     if (!exists_xloginrc(xloginrc)) {
       //or use openbox fallback, if no value from previous
       //default value
       //session=(char*[2]){DEFAULT_SESSION,NULL};
-      session=defsession;
+      //session=defsession;
+      session=(char**) malloc((2*sizeof(char*)));
+      memset(session,0,2);
+      session[0]=DEFAULT_SESSION;
     } else {//doesnt has default value because some rc exists
       if (!got_valid_first_line(xloginrc,sessionbin)) {
 	//writelog("Cound not get valid line in xloginrc");
 	//use default
-	if (!snprintf_managed(sessionbin,MAX_PATH, "%s", DEFAULT_SESSION)) {
+	if (!snprintf_managed(sessionbin,MAX_PATH, "%s", DEFAULT_SESSION)) {//allow ":lxde"? BUG: see if keep this
 	  writelog("Path to default session file too long or other error");
 	  _exit(EXIT_FAILURE);
 	}
@@ -1634,7 +1682,6 @@ static void start_session(struct pamdata *const pampst) {
 	  writelog("splitstr failed");
 	  _exit(EXIT_FAILURE);
 	}      
-	dynmem=true;//have to free(session)
 	//session[0]=sessionbin;
 	//writelog("MARK");
 	//writelog(sessionbin);
@@ -1648,6 +1695,13 @@ static void start_session(struct pamdata *const pampst) {
 	if (!snprintf_managed(sessionrc,MAX_PATH, xloginpath, sessionName)) {
 	  writelog("Path to session file too long or other error");
 	  _exit(EXIT_FAILURE);
+	}
+	{//logout script name if exists
+	  const char *const permMsg="Permissions of logout sessionrc files must be owned for root:root and 'other' readable only";
+	  const char *const perm="---rw-r--r--";
+	  if (build_and_test_path(XLOGINDIR "/%s_o", sessionName, permMsg, perm, logout_sessionrc)) {//no recheck parents!
+	    need_logout=true;
+	  }
 	}
 	/*
 	//done early
@@ -1672,16 +1726,15 @@ static void start_session(struct pamdata *const pampst) {
 	}
 	*/
 	//open file and take data
-	if (!got_valid_line(sessionrc,sessionbin,got_line_login_action)) {
+	if (!got_valid_line(hasShell,sessionrc,got_line_login_action,sessionbin)) {
 	  writelog("Cound not get valid line in sessionrc");
-	  _exit (EXIT_FAILURE);
+	  _exit(EXIT_FAILURE);
 	}
 	if (!splitstr(" \n\r", &sessionbin[1], &session)) {//format session array for exec (dont send const sessionbin array)
 	  writelog("splitstr failed");
 	  _exit(EXIT_FAILURE);
 	}
 	//writelog(&sessionbin[1]);
-	dynmem=true;//have to free(session)	
       }
     }
   }
@@ -1748,13 +1801,33 @@ static void start_session(struct pamdata *const pampst) {
   //char *const envp[]={"HOME=/home/user","DISPLAY=:0","PATH=/usr/bin:/bin","USER=user",NULL};//ok con execve
   //if (execve(session[0],session,envp)<0){//no shell req
   //if (execvp(*session,session)<0){//no shell req
-  if (session==NULL) {//default value
-    session=defsession;    
-  }
-  if (execvp(session[0],session)<0){//no shell req
-    if (dynmem) { free(session);session=NULL; }
-    ewritelog("Session exec failed");
+  if (session==NULL) {//default value? BUG: do assert
+    writelog("Error gettting session value");
     _exit(EXIT_FAILURE);
+  }
+  if (!need_logout) {
+    if (execvp(session[0],session)<0){//no shell req
+      free(session);
+      session=NULL;
+      ewritelog("Session exec failed");
+      _exit(EXIT_FAILURE);
+    }
+  } else {
+    //if logout script is required, fork last cmd and keep this process for running logout script
+    pid_t child_pid=-1;//pid to wait for
+    fork_prog_(session, &child_pid);
+    free(session);
+    session=NULL;
+    //wait child of previous step and on completion run logout script
+    if (!waitpid_with_log(child_pid)) {
+      ewritelog("Failed waiting child (session) process from xlogin session manager");
+      _exit(EXIT_FAILURE);
+    }
+    //run logout script
+    if (!got_valid_line(hasShell,logout_sessionrc,got_line_logout_action,sessionbin)) {
+      writelog("Cound not get valid line in logout sessionrc");
+      _exit(EXIT_FAILURE);
+    }
   }
 }
 
@@ -2931,6 +3004,7 @@ int main(int argc,char *argv[]) {
     }
   }
 */
+  /*
   {//wait immediate child (session manager)
     int status=EXIT_FAILURE;
     if (waitpid(child_pid,&status,0)==child_pid) {//child returns
@@ -2943,15 +3017,21 @@ int main(int argc,char *argv[]) {
       }
     } else {
       ewritelog("Failed waiting child (session) process");
-      /*
-      if (kill(xserver_pid, SIGINT)!=0) {//kill X or blank screen appears
-	ewritelog("Failed to kill xserver");
-      }
-      */
+
+      //if (kill(xserver_pid, SIGINT)!=0) {//kill X or blank screen appears
+	//ewritelog("Failed to kill xserver");
+      //}
+
       //and kill xserver
       main_failure(cleanup);
       //exit(EXIT_FAILURE);
     }
+  }
+  */
+  if (!waitpid_with_log(child_pid)) {
+    ewritelog("Failed waiting child (session) process");
+    main_failure(cleanup);
+    //exit(EXIT_FAILURE);
   }
 
   //sleep(10);

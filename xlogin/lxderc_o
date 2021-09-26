@@ -1,0 +1,10 @@
+## lxderc logout file for xloginrc
+# each line is a command to run. No extra spaces allowed.
+
+lxpanelctl exit
+pcmanfm --desktop-off
+#pkill -U "$USER" --signal 15
+#pkill -U "$USER" --signal 9
+#openbox --exit
+
+## last line. Do not delete.
