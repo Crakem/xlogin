@@ -194,7 +194,6 @@ static bool valid_xloginrc_line(const char sessionbin[MAX_PATH]);
 static bool valid_yama_line(const char str[MAX_PATH]);
 static bool valid_proc_line(const char str[MAX_PATH]);
 static bool read_valid_line_from_file(FILE* *const fp_ptr, const char *const filename, bool (*validate)(const char *const), /*out*/ char line[MAX_PATH]);
-static bool got_valid_first_line(const char xloginrc[MAX_PATH], char sessionbin[MAX_PATH]);
 static bool got_valid_proc_line(const char procdir[MAX_PATH],char line[MAX_PATH]);
 static bool validate_fstype(const char *const path, __fsword_t fstype);
 static bool is_proc_secure(void);
@@ -1002,38 +1001,6 @@ static bool read_valid_line_from_file(FILE* *const fp_ptr, const char *const fil
 }
 
 /*
- * get_valid_line: open xloginrc file, taker first non commented or empty line, and store line in sessionbin buffer
- */
-static bool got_valid_first_line(const char xloginrc[MAX_PATH], char sessionbin[MAX_PATH]) {
-  //open file, take data and close file
-  FILE* fp=fopen(xloginrc,"r");
-  if (fp==NULL) {
-    ewritelog("Error opening xinitrc file");
-    return false;
-  }
-  //read first valid line (neither commented nor empty)
-  const bool success=read_valid_line_from_file(&fp,"xloginrc",valid_xloginrc_line,sessionbin);
-  if (!success) {
-    if (fp==NULL) {
-      writelog("Stream error");
-    } else {
-      writelog("Error getting valid line from file xloginrc");
-    }
-  }
-  //last line of file dont have newline char (require it putting std char)
-  if (fp!=NULL) {//have to close
-    //close file
-    if (fclose(fp)!=0) {
-      fp=NULL;
-      ewritelog("Failed to close xloginrc file pointer");
-      return false;
-    }
-    fp=NULL;
-  }
-  return success;
-}
-
-/*
  * valid_yama_line
  */
 static bool valid_yama_line(const char str[MAX_PATH]) {
@@ -1273,6 +1240,17 @@ static void fork_prog(const bool hasShell, char sessionbin[MAX_PATH], pid_t* chi
 }
 
 /*
+ *  got_first_line_action
+ */
+static bool got_first_line_action(bool *const success, const bool hasShell, char sessionbin[MAX_PATH]) {
+  bool eof=true;//get out of while and proceed to close file
+  if (!(*success)) {//eof
+    writelog("Error getting valid line from file xloginrc");
+  }
+  return eof;
+}
+
+/*
  * got_line_login_action: do login actions. Run cmds while success to exec line (starting with '*'), cmd returned in sessionbin
  */
 static bool got_line_login_action(bool *const success, const bool hasShell, char sessionbin[MAX_PATH]) {
@@ -1318,7 +1296,7 @@ static bool got_valid_line(const bool hasShell, const char sessionrc[MAX_PATH], 
   //open file, make action each line except last, take data last line and close file
   FILE* fp=fopen(sessionrc,"r");
   if (fp==NULL) {
-    ewritelog("Error openning session file");
+    vwritelog("Error openning '%s' file: %m",sessionrc);
     return false;
   }
   bool success=false;
@@ -1327,7 +1305,7 @@ static bool got_valid_line(const bool hasShell, const char sessionrc[MAX_PATH], 
     //read valid line (neither commented nor empty)
     success=read_valid_line_from_file(&fp,sessionrc,valid_xloginrc_line,sessionbin);
     if (fp==NULL) {
-      writelog("Stream error reading file");
+      vwritelog("Stream error reading '%s'",sessionrc);
       return false;
     }
     eof=(*action)(&success,hasShell,sessionbin);
@@ -1337,7 +1315,7 @@ static bool got_valid_line(const bool hasShell, const char sessionrc[MAX_PATH], 
   if (fp!=NULL) {
     if (fclose(fp)!=0) {
       fp=NULL;
-      ewritelog("Failed to close sessionrc file pointer");
+      vwritelog("Failed to close file pointer to '%s': %m",sessionrc);
       return false;
     }
     fp=NULL;
@@ -1649,7 +1627,7 @@ static void start_session(struct pamdata *const pampst) {
       memset(session,0,2);
       session[0]=DEFAULT_SESSION;
     } else {//doesnt has default value because some rc exists
-      if (!got_valid_first_line(xloginrc,sessionbin)) {
+      if (!got_valid_line(hasShell,xloginrc,got_first_line_action,sessionbin)) {
 	//writelog("Cound not get valid line in xloginrc");
 	//use default
 	if (!snprintf_managed(sessionbin,MAX_PATH, "%s", DEFAULT_SESSION)) {//allow ":lxde"? BUG: see if keep this
@@ -1822,6 +1800,7 @@ static void start_session(struct pamdata *const pampst) {
       writelog("Cound not get valid line in logout sessionrc");
       _exit(EXIT_FAILURE);
     }
+    _exit(EXIT_SUCCESS);
   }
 }
 
