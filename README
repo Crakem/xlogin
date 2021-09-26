@@ -74,6 +74,9 @@ c7:2345:respawn:/sbin/mingetty tty7 --loginprog=/bin/xlogin
 
 Adjust to your tty number. After that, run 'telinit q' as root. If tty7 have running a agetty prior to telinit, you have to kill its proccess too.
 
+If you're using Gentoo's openrc as your service manager and you've added display-manager to your default runlevel, you have to remove it or select another vt for xlogin. For disabling your old display manager run as root,
+# rc-config delete display-manager default
+
 - For systemd init, a file need get installed on /etc/systemd/system/getty@tty1.service.d/xlogin.conf, for configuring agetty for xlogin (lxde ready).
 Adjust to your tty number. Pick that file from xlogin directory as root,
 # mv /etc/xlogin/xlogin.conf /etc/systemd/system/getty@tty1.service.d/.
