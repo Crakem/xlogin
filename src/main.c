@@ -1624,7 +1624,7 @@ static void start_session(struct pamdata *const pampst) {
       //session=(char*[2]){DEFAULT_SESSION,NULL};
       //session=defsession;
       session=(char**) malloc((2*sizeof(char*)));
-      memset(session,0,2);
+      memset(session,0,2*sizeof(char*));
       session[0]=DEFAULT_SESSION;
     } else {//doesnt has default value because some rc exists
       if (!got_valid_line(hasShell,xloginrc,got_first_line_action,sessionbin)) {
