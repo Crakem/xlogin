@@ -2733,7 +2733,7 @@ int main(int argc,char *argv[]) {
     if (dup2(devnullFdWr,STDOUT_FILENO)<0) {
       ewritelog("Failed closing stdout");
       main_failure(exit);
-      //exit(EXIT_FAILURE);    
+      //exit(EXIT_FAILURE);
     }
     if (dup2(devnullFdWr,STDERR_FILENO)<0) {
       ewritelog("Failed closing stderr");
@@ -2746,7 +2746,7 @@ int main(int argc,char *argv[]) {
       //exit(EXIT_FAILURE);
     }
   }
-  
+
   //get tty number
   //get tty device
   const char* ttydev=ttyname(STDIN_FILENO); //da /dev/tty7 para vt7
@@ -2765,7 +2765,7 @@ int main(int argc,char *argv[]) {
     main_failure(exit);
     //exit(EXIT_FAILURE);
   }
-  
+
   {//check of xlogin system dir
     const char system_xlogin_dir[]=XLOGINDIR;
     if (access(system_xlogin_dir,F_OK)!=0) {
@@ -2774,15 +2774,15 @@ int main(int argc,char *argv[]) {
       //exit(EXIT_FAILURE);
     }
   }
-  
+
   {//check /proc is mounted hidepid=invisible
     if (!is_proc_secure()) {
       writelog("/proc security too weak");
       main_failure(exit);
-      //exit(EXIT_FAILURE);      
+      //exit(EXIT_FAILURE);
     }
   }
-  
+
   {//write utmp/wtmp login records
     //get sid current process
     const pid_t psid=getsid(0);
