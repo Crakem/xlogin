@@ -198,7 +198,8 @@ static bool got_valid_first_line(const char xloginrc[MAX_PATH], char sessionbin[
 static bool got_valid_proc_line(const char procdir[MAX_PATH],char line[MAX_PATH]);
 static bool validate_fstype(const char *const path, __fsword_t fstype);
 static bool is_proc_secure(void);
-static void fork_prog(char *const prog[]);
+static void fork_prog_(char *const prog[]);
+static void fork_prog(const bool hasShell, char sessionbin[MAX_PATH]);
 static bool cmd2buf(const bool eof, char sessionbintmp[MAX_PATH], char sessionbin[MAX_PATH]);
 static bool got_valid_line(const char sessionrc[MAX_PATH], char sessionbin[MAX_PATH]);
 static bool include(const char* *const patterns,const char *const str);
@@ -1196,9 +1197,9 @@ static bool is_proc_secure(void) {
 }
 
 /*
- * fork_prog: fork no wait process prog
+ * fork_prog_: fork no wait process prog
  */
-static void fork_prog(char *const prog[]) {
+static void fork_prog_(char *const prog[]) {
   /*
   //create handlers for save and restoring default handler
   struct sigaction oldHandler,newHandler;
@@ -1236,6 +1237,37 @@ static void fork_prog(char *const prog[]) {
 }
 
 /*
+ * fork_prog: fork with options
+ */
+static void fork_prog(const bool hasShell, char sessionbin[MAX_PATH]) {
+  //action with values
+  if (hasShell) {
+    wordexp_t p;
+    const int err=wordexp(sessionbin, &p, 0);
+    if ( err !=0 ) {//wordexp performs better and catch quotes (without shell), and backticks, dollar (with shell)
+      vwritelog("Failed executing with wordexp (shell available?). Wordexp error code: %d",err);
+      _exit(EXIT_FAILURE);
+    }
+    //printArgv(p.we_wordv);
+    fork_prog_(p.we_wordv);//argv format
+    //free resources
+    wordfree(&p);
+  } else {
+    char **session=NULL;
+    //BUG splitstr fails with quoted strings
+    if (!splitstr(" \n\r", sessionbin, &session)) {//format session array for exec
+      writelog("splitstr failed");
+      _exit(EXIT_FAILURE);
+    }
+    //printArgv(session);
+    fork_prog_(session);
+    //free resources
+    free(session);
+    session=NULL;
+  }
+}
+
+/*
  * got_valid_line: read file sessionrc and store last valid line in sessionbin
  */
 static bool got_valid_line(const char sessionrc[MAX_PATH], char sessionbin[MAX_PATH]) {
@@ -1268,32 +1300,8 @@ static bool got_valid_line(const char sessionrc[MAX_PATH], char sessionbin[MAX_P
       eof=true;//get out of while and proceed to close file if remains open
     } else {
       if (sessionbin[0]!='*') {//dont match line to fork
-	//action with values
-	if (hasShell) {
-	  wordexp_t p;	
-	  const int err=wordexp(sessionbin, &p, 0);
-	  if ( err !=0 ) {//wordexp performs better and catch quotes (without shell), and backticks, dollar (with shell)
-	    vwritelog("Failed executing with wordexp (shell available?). Wordexp error code: %d",err);
-	    _exit(EXIT_FAILURE);
-	  }
-	  //printArgv(p.we_wordv);
-	  fork_prog(p.we_wordv);
-	  //free resources
-	  wordfree(&p);
-	} else {
-	  char **session=NULL;
-	  //BUG splitstr fails with quoted strings
-	  if (!splitstr(" \n\r", sessionbin, &session)) {//format session array for exec
-	    writelog("splitstr failed");
-	    _exit(EXIT_FAILURE);
-	  }
-	  //printArgv(session);      
-	  fork_prog(session);
-	  //free resources
-	  free(session);
-	  session=NULL;
-	}
-      } else { //line to fork
+	fork_prog(hasShell,sessionbin);
+      } else { //line to fork in main
 	eof=true;
       }
     }
