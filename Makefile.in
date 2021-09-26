@@ -323,7 +323,7 @@ top_srcdir = @top_srcdir@
 utmp_group_name = @utmp_group_name@
 SUBDIRS = src
 dist_doc_DATA = README
-dist_sysconf_DATA = xlogin/xloginrc xlogin/lxderc xlogin/xclientsrc xlogin/Xsession
+dist_sysconf_DATA = xlogin/xloginrc xlogin/lxderc xlogin/lxderc_o xlogin/xclientsrc xlogin/Xsession xlogin/xlogin.conf
 all: config.h
 	$(MAKE) $(AM_MAKEFLAGS) all-recursive
 
@@ -850,7 +850,6 @@ uninstall-am: uninstall-dist_docDATA uninstall-dist_sysconfDATA
 
 .PRECIOUS: Makefile
 
-#dist_sysconf_DATA = systemd/system/getty@tty1.service.d/xlogin.conf
 
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.

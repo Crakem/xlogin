@@ -21,6 +21,10 @@
 #include <config.h>
 #endif
 
+#ifndef PACKAGE_VERSION
+#define PACKAGE_VERSION "0.43.1"
+#endif
+
 #ifndef USE_PAM
 #include <sys/types.h>
 #include <signal.h> //kill,signal,(killpg)
@@ -2612,7 +2616,7 @@ static int auth_user(struct pamdata *const pampst) {
 #define main_success(label) goto label;
 
 int main(int argc,char *argv[]) {
-  writelog("xlogin v0.43.0 starting");
+  writelog("xlogin v" PACKAGE_VERSION " starting");
   /*
   for (int i=0;i<argc;i++){
     fprintf(stdout,"argv[%d]: %s\n",i,argv[i]);
