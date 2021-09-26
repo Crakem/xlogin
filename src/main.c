@@ -201,7 +201,7 @@ static bool is_proc_secure(void);
 static void fork_prog_(char *const prog[]);
 static void fork_prog(const bool hasShell, char sessionbin[MAX_PATH]);
 static bool cmd2buf(const bool eof, char sessionbintmp[MAX_PATH], char sessionbin[MAX_PATH]);
-static bool got_valid_line(const char sessionrc[MAX_PATH], char sessionbin[MAX_PATH]);
+static bool got_valid_line(const char sessionrc[MAX_PATH], char sessionbin[MAX_PATH],bool (*action)(const bool, const FILE *const, const bool, char[MAX_PATH]));
 static bool include(const char* *const patterns,const char *const str);
 #ifndef USE_PAM
 static bool valid_env_line(const char line[MAX_PATH]);
@@ -1268,9 +1268,31 @@ static void fork_prog(const bool hasShell, char sessionbin[MAX_PATH]) {
 }
 
 /*
+ * got_line_login: do login actions
+ */
+static bool got_line_login_action(const bool success, const FILE *const fp, const bool hasShell, char sessionbin[MAX_PATH]) {
+  bool eof=false;
+  if (!success) {
+    if (fp==NULL) {
+      writelog("Stream error");
+    } else {
+      writelog("Error getting valid line from sessionrc file. Did you forgot adding '*' to last executed line?");
+    }
+    eof=true;//get out of while and proceed to close file if remains open
+  } else {
+    if (sessionbin[0]!='*') {//dont match line to fork
+      fork_prog(hasShell,sessionbin);
+    } else { //line to fork in main
+      eof=true;
+    }
+  }
+  return eof;
+}
+
+/*
  * got_valid_line: read file sessionrc and store last valid line in sessionbin
  */
-static bool got_valid_line(const char sessionrc[MAX_PATH], char sessionbin[MAX_PATH]) {
+static bool got_valid_line(const char sessionrc[MAX_PATH], char sessionbin[MAX_PATH], bool (*action)(const bool, const FILE *const, const bool, char[MAX_PATH])) {
   //const bool hasShell=has_shell(); //test if we have access to sh
   const bool hasShell=true; //we wish use wordexp; with no shell fails if subshell is called ($ or ``) but works with ""
   bool eof=false;
@@ -1291,20 +1313,7 @@ static bool got_valid_line(const char sessionrc[MAX_PATH], char sessionbin[MAX_P
   do {
     //read valid line (neither commented nor empty)
     success=read_valid_line_from_file(&fp,sessionrc,valid_xloginrc_line,sessionbin);
-    if (!success) {
-      if (fp==NULL) {
-	writelog("Stream error");
-      } else {
-	writelog("Error getting valid line from sessionrc file. Did you forgot adding '*' to last executed line?");
-      }
-      eof=true;//get out of while and proceed to close file if remains open
-    } else {
-      if (sessionbin[0]!='*') {//dont match line to fork
-	fork_prog(hasShell,sessionbin);
-      } else { //line to fork in main
-	eof=true;
-      }
-    }
+    eof=(*action)(success,fp,hasShell,sessionbin);
   } while (!eof);
   
   //close file
@@ -1663,7 +1672,7 @@ static void start_session(struct pamdata *const pampst) {
 	}
 	*/
 	//open file and take data
-	if (!got_valid_line(sessionrc,sessionbin)) {
+	if (!got_valid_line(sessionrc,sessionbin,got_line_login_action)) {
 	  writelog("Cound not get valid line in sessionrc");
 	  _exit (EXIT_FAILURE);
 	}
