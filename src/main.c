@@ -1505,7 +1505,7 @@ static void start_session(struct pamdata *const pampst) {
     }
     if (setenv("USER",user.name,0)!=0){
       //fprintf(stderr,"Failed to set XTERM_SHELL envvar (%d)\n",errno);
-      ewritelog("Failed to set XTERM_SHELL envvar");
+      ewritelog("Failed to set USER envvar");
       _exit(EXIT_FAILURE);
     }
     if (setenv("SHELL",user.shell,1)!=0){
