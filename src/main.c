@@ -201,10 +201,9 @@ static bool is_proc_secure(void);
 static void fork_prog_(char *const prog[], pid_t* child_pid);
 static void fork_prog(const bool hasShell, char sessionbin[MAX_PATH], pid_t* child_pid);
 static bool cmd2buf(const bool eof, char sessionbintmp[MAX_PATH], char sessionbin[MAX_PATH]);
-static bool got_line_login_action(const bool success, const FILE *const fp, const bool hasShell, char sessionbin[MAX_PATH]);
-static bool got_line_logout_action(const bool success, const FILE *const fp, const bool hasShell, char sessionbin[MAX_PATH]);
-static bool got_valid_line(const bool hasShell, const char sessionrc[MAX_PATH], bool (*action)(const bool, const FILE *const, const bool, char[MAX_PATH]),
-			   char sessionbin[MAX_PATH]);
+static bool got_line_login_action(bool *const success, const bool hasShell, char sessionbin[MAX_PATH]);
+static bool got_line_logout_action(bool *const success, const bool hasShell, char sessionbin[MAX_PATH]);
+static bool got_valid_line(const bool hasShell, const char sessionrc[MAX_PATH], bool (*action)(bool *const, const bool, char[MAX_PATH]), char sessionbin[MAX_PATH]);
 static bool include(const char* *const patterns,const char *const str);
 #ifndef USE_PAM
 static bool valid_env_line(const char line[MAX_PATH]);
@@ -1276,14 +1275,10 @@ static void fork_prog(const bool hasShell, char sessionbin[MAX_PATH], pid_t* chi
 /*
  * got_line_login_action: do login actions. Run cmds while success to exec line (starting with '*'), cmd returned in sessionbin
  */
-static bool got_line_login_action(const bool success, const FILE *const fp, const bool hasShell, char sessionbin[MAX_PATH]) {
+static bool got_line_login_action(bool *const success, const bool hasShell, char sessionbin[MAX_PATH]) {
   bool eof=false;
-  if (!success) {
-    if (fp==NULL) {
-      writelog("Stream error");
-    } else {
-      writelog("Error getting valid line from sessionrc file. Did you forgot adding '*' to last executed line?");
-    }
+  if (!(*success)) {//eof
+    writelog("Error getting valid line from sessionrc file. Did you forgot adding '*' to last executed line?");
     eof=true;//get out of while and proceed to close file if remains open
   } else {
     if (sessionbin[0]!='*') {//dont match line to fork
@@ -1298,14 +1293,10 @@ static bool got_line_login_action(const bool success, const FILE *const fp, cons
 /*
  * got_line_logout_action: do login actions. Run cmds while success to end of file
  */
-static bool got_line_logout_action(const bool success, const FILE *const fp, const bool hasShell, char sessionbin[MAX_PATH]) {
+static bool got_line_logout_action(bool *const success, const bool hasShell, char sessionbin[MAX_PATH]) {
   bool eof=false;
-  if (!success) {
-    if (fp==NULL) {
-      writelog("Stream error");
-      //} else {//eof
-      //writelog("Error getting valid line from sessionrc file. Did you forgot adding '*' to last executed line?");
-    }
+  if (!(*success)) {//eof
+    *success=true;//ok if we reach eof
     eof=true;//get out of while and proceed to close file if remains open
   } else {
     fork_prog(hasShell,sessionbin,NULL);
@@ -1316,8 +1307,7 @@ static bool got_line_logout_action(const bool success, const FILE *const fp, con
 /*
  * got_valid_line: read file sessionrc and store last valid line in sessionbin
  */
-static bool got_valid_line(const bool hasShell, const char sessionrc[MAX_PATH], bool (*action)(const bool, const FILE *const, const bool, char[MAX_PATH]),
-			   char sessionbin[MAX_PATH]) {
+static bool got_valid_line(const bool hasShell, const char sessionrc[MAX_PATH], bool (*action)(bool *const, const bool, char[MAX_PATH]), char sessionbin[MAX_PATH]) {
   bool eof=false;
 /*
   if (signal(SIGCHLD,SIG_IGN)==SIG_ERR) {//no defuncts (works)
@@ -1336,7 +1326,11 @@ static bool got_valid_line(const bool hasShell, const char sessionrc[MAX_PATH], 
   do {
     //read valid line (neither commented nor empty)
     success=read_valid_line_from_file(&fp,sessionrc,valid_xloginrc_line,sessionbin);
-    eof=(*action)(success,fp,hasShell,sessionbin);
+    if (fp==NULL) {
+      writelog("Stream error reading file");
+      return false;
+    }
+    eof=(*action)(&success,hasShell,sessionbin);
   } while (!eof);
   
   //close file
