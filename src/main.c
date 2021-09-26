@@ -2818,7 +2818,12 @@ int main(int argc,char *argv[]) {
     if (dup2(devnullFdRd,STDIN_FILENO)<0) {
       ewritelog("Failed closing stdin");
       main_failure(exit);
-      //exit(EXIT_FAILURE);    
+      //exit(EXIT_FAILURE);
+    }
+    if (close(devnullFdRd)==-1) {
+      ewritelog("Failed to close redirected file desciptor");
+      main_failure(exit);
+      //exit(EXIT_FAILURE);
     }
   }
 
