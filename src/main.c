@@ -226,6 +226,8 @@ static bool load_env(void);
 static bool exists_pamconfig(void);
 static bool load_pam_env(const struct pamdata *const pampst);
 #endif
+static bool waitpid_with_log(const pid_t child_pid);
+static bool waitsid_with_log(const pid_t child_sid);
 static void start_session(struct pamdata *const pampst);
 static void strzero(char *const);
 static bool check_parents_(const char *const permMsg, const char *const perm, char *const dir);
@@ -1295,7 +1297,16 @@ static bool action_logout_line(bool *const success, const bool hasShell, char se
     *success=true;//ok if we reach eof
     eof=true;//get out of while and proceed to close file if remains open
   } else {
-    fork_prog(hasShell,sessionbin,NULL);
+    pid_t child_pid=-1;
+    fork_prog(hasShell,sessionbin,&child_pid);
+    if (child_pid==-1) {
+      writelog("Error gettting child process while stopping session");
+    } else {
+      //wait stop actions
+      if (!waitpid_with_log(child_pid)) {
+	ewritelog("Error waiting child process while stopping session");
+      }
+    }
   }
   return eof;
 }
@@ -1498,6 +1509,29 @@ static bool waitpid_with_log(const pid_t child_pid) {
       }
     }
   } else {//failed waiting
+    return false;
+  }
+  return true;
+}
+
+/*
+ * waitsid_with_log: wait child process group
+ */
+static bool waitsid_with_log(const pid_t child_sid) {
+  pid_t cpid=-1;
+  int status=EXIT_FAILURE;
+  //man wait(3p)
+  //vwritelog("waiting childs pg: %d",child_sid);
+  while ( (cpid=waitpid(-child_sid,&status,0)) !=-1 ) {//with child_sid==0 wait childs pg same of parent
+    if (!WIFEXITED(status)) {
+      vwritelog("Process with pid=%d crashed",cpid);
+    } else {
+      if (WEXITSTATUS(status)!=EXIT_SUCCESS) {
+	vwritelog("Process with pid=%d ended with failure (%d)",cpid,WEXITSTATUS(status));
+      }
+    }
+  }
+  if (errno!=ECHILD) {
     return false;
   }
   return true;
@@ -3014,7 +3048,8 @@ int main(int argc,char *argv[]) {
     main_failure(cleanup);
     //exit(EXIT_FAILURE);
   } else if (child_pid == 0) {//child
-    //if (setsid()==((pid_t) -1)) { ewritelog("Failed to create process group for child session"); };
+    //create a session
+    if (setsid()==((pid_t) -1)) { ewritelog("Failed to create process group for child session"); };
 #ifdef USE_PAM
     start_session(&pamst);
 #else
@@ -3022,33 +3057,38 @@ int main(int argc,char *argv[]) {
 #endif
   }
   //parent
-  /*
   // bash: ps axo stat,euid,ruid,tty,tpgid,sess,pgrp,ppid,pid,pcpu,comm
-  pid_t child_sid;
-  //if ( (child_sid = getpgid(child_pid)) <0) { //getpgid,getpgrp
-  if ( (child_sid = getsid(child_pid)) <0) {
-    ewritelog("Failed to get child sid");
-    exit(EXIT_FAILURE);
-  } else if (child_sid <=1 ) { //man killpg(3)
-    writelog("Invalid process group");
-    exit(EXIT_FAILURE);
-  }
-  */
   //wait(NULL);
   //waitpid(child_pid,NULL,0);
   //vwritelog("xlogin will wait to pid: %d",child_pid);
-  //sleep(2);//BUG buscar una forma mejor de sincronizar
-  //const pid_t child_sid=getsid(child_pid);//for killing process group
-  //vwritelog("child sid %d",child_sid);
 
+  //dont track changes because runs before child change sid
+  //const pid_t child_sid=getsid(child_pid); //getpgid,getpgrp
+  //if (child_sid==-1) {
+  //  vwritelog("Error getting childs process group (child_pid: %d): %m",child_pid);
+  //}
+
+  //wait immediate child
   if (!waitpid_with_log(child_pid)) {
     ewritelog("Failed waiting child (session) process");
     main_failure(cleanup);
     //exit(EXIT_FAILURE);
   }
 
-  //sleep(10);
-  //writelog("Going to kill X");
+  //vwritelog("Killing pg: %d",child_pid);
+
+  //kill child_pid because its child_sid
+  if (killpg(child_pid, SIGINT)!=0) {//non fatal
+    vwritelog("Failed to kill child process group %d: %m",child_pid);
+    //exit(EXIT_FAILURE);
+  }
+
+  //wait subchild process group
+  //as subreaper could wait for childs adquired
+  if (!waitsid_with_log(child_pid)) {//BUG need timeout for killing X
+    ewritelog("Error waiting sub childs process in reaper parent");
+  }
+
 cleanup:
   //kill xserver
   if (kill(xserver_pid, SIGINT)!=0) {//BUG: reset and shutdown options??
@@ -3084,21 +3124,10 @@ cleanup:
 
   {//wait child process group
     //as subreaper could wait for childs adquired
-    const pid_t child_sid=getsid(0);//for killing process group
-    pid_t cpid=-1;
-    int status=EXIT_FAILURE;
-    //man wait(3p)
-    //los childs han pasado al PPID==1, no al inmediato superior
-    //vwritelog("waiting childs pg: %d",child_sid);
-    while ( (cpid=waitpid(-child_sid,&status,0)) !=-1 ) {//with child_sid==0 wait childs pg same of parent
-      if (!WIFEXITED(status)) {
-	vwritelog("Process with pid=%d exited with error",cpid);
-	//} else {
-	//vwritelog("Process with pid=%d exited sucessfully",cpid);
-      }
-    }
-    if (errno!=ECHILD) {
-      ewritelog("Error waiting childs in reaper parent");
+    //for killing process group
+    const pid_t child_sid=getsid(0); //getpgid,getpgrp
+    if (!waitsid_with_log(child_sid)) {
+      ewritelog("Error waiting childs process in reaper parent");
     }
   }
 
