@@ -190,21 +190,25 @@ static pid_t start_xserver(char *const default_vt);
 static bool build_and_test_path(const char *const template, const char *const filename, const char permMsg[], const char perm[],char filepath[MAX_PATH]);
 static bool exists_xloginrc(char xloginrc[MAX_PATH]);
 static bool exists_proc(char procdir[MAX_PATH]);
-static bool valid_xloginrc_line(const char sessionbin[MAX_PATH]);
+static bool valid_not_commented_or_null_line(const char sessionbin[MAX_PATH]);
 static bool valid_yama_line(const char str[MAX_PATH]);
 static bool valid_proc_line(const char str[MAX_PATH]);
 static bool read_valid_line_from_file(FILE* *const fp_ptr, const char *const filename, bool (*validate)(const char *const), /*out*/ char line[MAX_PATH]);
-static bool got_valid_proc_line(const char procdir[MAX_PATH],char line[MAX_PATH]);
+static bool action_proc_line(bool *const success, const bool hasShell, char line[MAX_PATH]);
+static bool action_yama_line(bool *const success, const bool hasShell, char line[MAX_PATH]);
+static bool action_first_line(bool *const success, const bool hasShell, char sessionbin[MAX_PATH]);
 static bool validate_fstype(const char *const path, __fsword_t fstype);
 static bool is_proc_secure(void);
 static void fork_prog_(char *const prog[], pid_t* child_pid);
 static void fork_prog(const bool hasShell, char sessionbin[MAX_PATH], pid_t* child_pid);
 static bool cmd2buf(const bool eof, char sessionbintmp[MAX_PATH], char sessionbin[MAX_PATH]);
-static bool got_line_login_action(bool *const success, const bool hasShell, char sessionbin[MAX_PATH]);
-static bool got_line_logout_action(bool *const success, const bool hasShell, char sessionbin[MAX_PATH]);
-static bool got_valid_line(const bool hasShell, const char sessionrc[MAX_PATH], bool (*action)(bool *const, const bool, char[MAX_PATH]), char sessionbin[MAX_PATH]);
+static bool action_login_line(bool *const success, const bool hasShell, char sessionbin[MAX_PATH]);
+static bool action_logout_line(bool *const success, const bool hasShell, char sessionbin[MAX_PATH]);
+static bool got_valid_line(const bool hasShell, const char sessionrc[MAX_PATH], bool (*validate)(const char *const),
+			   bool (*action)(bool *const, const bool, char[MAX_PATH]), char sessionbin[MAX_PATH]);
 static bool include(const char* *const patterns,const char *const str);
 #ifndef USE_PAM
+static bool action_env_line(bool *const success, const bool hasShell, char line[MAX_PATH]);
 static bool valid_env_line(const char line[MAX_PATH]);
 static bool load_env(void);
 #else
@@ -910,10 +914,10 @@ static bool build_and_test_path(const char *const template, const char *const fi
   }
 }
 
- /*
- * valid_xloginrc_line: validate line from xloginrc/sessionrc. Is valid if neither commented nor empty
+/*
+ * valid_not_commented_or_null: validate line from xloginrc/sessionrc. Is valid if neither commented nor empty
  */
-static bool valid_xloginrc_line(const char sessionbin[MAX_PATH]) {
+static bool valid_not_commented_or_null_line(const char sessionbin[MAX_PATH]) {
   const char str=sessionbin[0];
   if ( (str=='#') || (str=='\0') || (str=='\r') ) {
     return false;
@@ -1015,6 +1019,7 @@ static bool valid_yama_line(const char str[MAX_PATH]) {
  */
 static bool valid_proc_line(const char str[MAX_PATH]) {
   char **argvline=NULL;
+  bool result=false;
   //duplicar el array
   char *const cpstr=strdup(str);
   if ( cpstr == NULL ){
@@ -1027,46 +1032,58 @@ static bool valid_proc_line(const char str[MAX_PATH]) {
     exit(EXIT_FAILURE);
   }
   //proc /proc proc rw,nosuid,nodev,noexec,relatime,hidepid=invisible 0 0
-  if (strcmp("/proc",argvline[1])!=0) {
-    free(argvline);argvline=NULL;
-    free(cpstr);
-    return false;
+  if (strcmp("/proc",argvline[1])==0) {
+    result=true;
   }
   free(argvline);argvline=NULL;
   free(cpstr);
-  return true;
+  return result;
 }
 
 /*
- * got_valid_proc_line: read and find proc line if any, return it on line str
+ * action_proc_line
+ * profile: run action for first found or fail
  */
-static bool got_valid_proc_line(const char procdir[MAX_PATH],char line[MAX_PATH]) {//BUG set own sizes to line??
-  //open file, take data and close file
-  FILE* fp=fopen(procdir,"r");
-  if (fp==NULL) {
-    ewritelog("Error opening " PROC_MOUNTS " file");
-    return false;
-  }
-  //read proc line as str
-  const bool success=read_valid_line_from_file(&fp,"proc",valid_proc_line,line);
-  if (!success) {
-    if (fp==NULL) {
-      writelog("Stream error");
-    } else {
-      writelog("Error getting valid /proc line from file " PROC_MOUNTS);
-    }
-  }
-  //last line of file dont have newline char (require it putting std char)
-  if (fp!=NULL) {//have to close
-    //close file
-    if (fclose(fp)!=0) {
-      fp=NULL;
-      ewritelog("Failed to close " PROC_MOUNTS " file pointer");
+static bool action_proc_line(bool *const success, const bool hasShell, char line[MAX_PATH]) {
+  bool eof=true;//get out of while and proceed to close file
+  if (!(*success)) {//eof
+    writelog("Error getting valid /proc line from file " PROC_MOUNTS);
+  } else {
+    //work duplicated with valid_proc_line for proc line only
+    char **argvline=NULL;
+    if (!splitstr(" \n", line, &argvline)) {//destroys line array!
+      writelog("Error with splitstr while splitting");
       return false;
     }
-    fp=NULL;
+    //proc /proc proc rw,nosuid,nodev,noexec,relatime,hidepid=invisible 0 0
+    const bool secure=strstr(argvline[3],"hidepid=invisible")==NULL? false:true;
+    free(argvline);argvline=NULL;
+    if (!secure) {
+      writelog("/proc must be mounted with hidepid=2 (invisible) for protecting magic cookie from stealing");
+      return false;
+    }
   }
-  return success;
+  return eof;
+}
+
+/*
+ * action_yama_line
+ * profile: run action for first found or fail
+ */
+static bool action_yama_line(bool *const success, const bool hasShell, char line[MAX_PATH]) {
+  bool eof=true;//get out of while and proceed to close file
+  if (!(*success)) {//eof
+    writelog("Couln't find valid line in " PROC_YAMA);
+  } else {
+    //valid value, lets compare with profile
+    const char yamaprofile=YAMA_PROFILE;
+    const char yamavalue=line[0];
+    if (yamavalue < yamaprofile) {
+      vwritelog("Yama profile too permissive '%c', set it to '%c'", yamavalue, yamaprofile);
+      *success=false;
+    }
+  }
+  return eof;
 }
 
 /*
@@ -1112,54 +1129,17 @@ static bool is_proc_secure(void) {
 	return false;
       }
       //get proc line from PROC_MOUNTS
-      if (!got_valid_proc_line(procdir,line)) {
-	writelog("Unable to find valid proc line");
-	return false;
-      }
-      //work duplicated with valid_proc_line for proc line only
-      char **argvline=NULL;
-      if (!splitstr(" \n", line, &argvline)) {//destroys line array!
-	writelog("Error with splitstr while splitting");
-	return false;
-      }
-      //proc /proc proc rw,nosuid,nodev,noexec,relatime,hidepid=invisible 0 0
-      const bool secure=strstr(argvline[3],"hidepid=invisible")==NULL? false:true;
-      free(argvline);argvline=NULL;
-      if (!secure) {
-	writelog("/proc must be mounted with hidepid=2 (invisible) for protecting magic cookie from stealing");
+      if (!got_valid_line(false, procdir, valid_proc_line, action_proc_line, line)) {
+	//writelog("Unable to find valid proc line");
 	return false;
       }
     }
     {//check yama support active
       const char proc_yama[]=PROC_YAMA;
-      FILE* fp=fopen(proc_yama,"r");
-      if (fp==NULL) {
-	ewritelog("Error opening " PROC_YAMA " file");
+      if (!got_valid_line(false, proc_yama, valid_yama_line, action_yama_line, line)) {
+	//writelog("Unable to find valid proc line");
 	return false;
       }
-      const bool success=read_valid_line_from_file(&fp, proc_yama, valid_yama_line, line);
-      if (!success) {
-	if (fp==NULL) {
-	  writelog("Stream error reading proc");
-	} else {
-	  writelog("Couln't find valid line in " PROC_YAMA);
-	}
-	return false;
-      } else {
-	//valid value, lets compare with profile
-	const char yamaprofile=YAMA_PROFILE;
-	const char yamavalue=line[0];
-	if (yamavalue < yamaprofile) {
-	  vwritelog("Yama profile too permissive '%c', set it to '%c'", yamavalue, yamaprofile);
-	  return false;
-	}
-      }
-      if (fclose(fp)!=0) {
-	fp=NULL;
-	vwritelog("Failed to close %s file pointer: %m",proc_yama);
-	return false;
-      }
-      fp=NULL;
     }
     return true;
   }
@@ -1240,9 +1220,10 @@ static void fork_prog(const bool hasShell, char sessionbin[MAX_PATH], pid_t* chi
 }
 
 /*
- *  got_first_line_action
+ * action_first_line
+ * profile: run action for first found or fail
  */
-static bool got_first_line_action(bool *const success, const bool hasShell, char sessionbin[MAX_PATH]) {
+static bool action_first_line(bool *const success, const bool hasShell, char sessionbin[MAX_PATH]) {
   bool eof=true;//get out of while and proceed to close file
   if (!(*success)) {//eof
     writelog("Error getting valid line from file xloginrc");
@@ -1251,9 +1232,10 @@ static bool got_first_line_action(bool *const success, const bool hasShell, char
 }
 
 /*
- * got_line_login_action: do login actions. Run cmds while success to exec line (starting with '*'), cmd returned in sessionbin
+ * action_login_line: do login actions. Run cmds while success to exec line (starting with '*'), cmd returned in sessionbin
+ * profile: run action for first found or fail
  */
-static bool got_line_login_action(bool *const success, const bool hasShell, char sessionbin[MAX_PATH]) {
+static bool action_login_line(bool *const success, const bool hasShell, char sessionbin[MAX_PATH]) {
   bool eof=false;
   if (!(*success)) {//eof
     writelog("Error getting valid line from sessionrc file. Did you forgot adding '*' to last executed line?");
@@ -1269,9 +1251,10 @@ static bool got_line_login_action(bool *const success, const bool hasShell, char
 }
 
 /*
- * got_line_logout_action: do login actions. Run cmds while success to end of file
+ * action_logout_line: do login actions. Run cmds while success to end of file
+ * profile: run actions for all found to end without failing
  */
-static bool got_line_logout_action(bool *const success, const bool hasShell, char sessionbin[MAX_PATH]) {
+static bool action_logout_line(bool *const success, const bool hasShell, char sessionbin[MAX_PATH]) {
   bool eof=false;
   if (!(*success)) {//eof
     *success=true;//ok if we reach eof
@@ -1283,9 +1266,64 @@ static bool got_line_logout_action(bool *const success, const bool hasShell, cha
 }
 
 /*
- * got_valid_line: read file sessionrc and store last valid line in sessionbin
+ * action_env_line: parse and register env vars
+ * profile: run actions for all found to end without failing
  */
-static bool got_valid_line(const bool hasShell, const char sessionrc[MAX_PATH], bool (*action)(bool *const, const bool, char[MAX_PATH]), char sessionbin[MAX_PATH]) {
+static bool action_env_line(bool *const success, const bool hasShell, char name[MAX_PATH]) {
+  bool eof=false;
+  if (!(*success)) {//eof
+    *success=true;//ok if we reach eof
+    eof=true;//get out of while and proceed to close file if remains open
+  } else {
+    //just checked is valid pair
+    /*
+    char* name=strdup(line);//needed because we change '=' with '\0'
+    if (name==NULL) {
+      ewritelog("Error duplicating string");
+      *success=false;
+      eof=true;
+      return eof;
+    }
+    */
+    char* value=strrchr(name,'=');//point to last '=' char
+    /*
+    if (value==NULL) {
+      vwritelog("Invalid environment var assignation, missing equal char: '%s'",line);
+      goto failed;//not a pair
+    }
+    */
+    *value='\0';//overwrite '=' with NULL
+    value++;//points to value //if envvar has only 'NAME=' this points to '\0'
+    /*
+    if (*value=='\0') {
+      goto cleanup;//empty pair; dont import vars as 'NAME='
+      //ignore and no fail
+    }
+    */
+    //excluir envvars que tienen LD* o "ROOTPATH*"
+    const char* filter[]={"ROOTPATH","LD",NULL};
+    if (!include(filter,name)) {
+      //vwritelog("Env var accepted '%s=%s' (sz: %d)",name,value,strlen(name)); //BUG: al descomentar los vwrite, a veces casca (puede que setenv falle tb)
+      if (setenv(name,value,0)!=0) {//fix var not overwritting
+	vwritelog("Failed setting environment with %s: %m",name);
+	*success=false;
+	eof=true;
+      }
+      //} else {
+      //vwritelog("Env var rejected '%s=%s' (sz: %d)",name,value,strlen(name));
+    }
+    //vwritelog("Setting envvar: '%s' = '%s'",name,value);
+    //free(name);
+  }
+  return eof;
+}
+
+/*
+ * got_valid_line: read file sessionrc and store last valid line in sessionbin
+ * valid lines choosed with 'validate' function, 'action' function could continue/finish after a successful find and change successful status with more test
+ */
+static bool got_valid_line(const bool hasShell, const char sessionrc[MAX_PATH], bool (*validate)(const char *const),
+			   bool (*action)(bool *const, const bool, char[MAX_PATH]), char line[MAX_PATH]) {//BUG: set MAX_LINE to 'line'?
   bool eof=false;
 /*
   if (signal(SIGCHLD,SIG_IGN)==SIG_ERR) {//no defuncts (works)
@@ -1300,15 +1338,15 @@ static bool got_valid_line(const bool hasShell, const char sessionrc[MAX_PATH], 
     return false;
   }
   bool success=false;
-  //read line by line, last one goes to sessionbin for exec
+  //read line by line
   do {
     //read valid line (neither commented nor empty)
-    success=read_valid_line_from_file(&fp,sessionrc,valid_xloginrc_line,sessionbin);
+    success=read_valid_line_from_file(&fp,sessionrc,(*validate),line);
     if (fp==NULL) {
       vwritelog("Stream error reading '%s'",sessionrc);
       return false;
     }
-    eof=(*action)(&success,hasShell,sessionbin);
+    eof=(*action)(&success,hasShell,line);
   } while (!eof);
 
   //close file
@@ -1336,85 +1374,45 @@ static bool include(const char* *const patterns,const char *const str) {
 /*
  * valid_env_line: validate line from /etc/environment. Is valid if neither commented nor empty and pairs NAME=VALUE
  */
-static bool valid_env_line(const char line[MAX_PATH]) {
+static bool valid_env_line(const char name[MAX_PATH]) {
   {//cleck no comented or null starting line (came space free (ltrimmed, rtrimmed))
-    const char str=line[0];
+    const char str=name[0];
     if ( (str=='#') || (str=='\0') || (str=='\r') ) {
       return false;
     }
   }
   //check is pair
-  bool success=true;
   {
-    char* name=strdup(line);
-    if (name==NULL) {
-      ewritelog("Error duplicating string");
-      return false;
-    }
     char* value=strrchr(name,'=');//point to last '=' char
     if (value==NULL) {
-      vwritelog("Invalid environment var assignation, missing equal char: '%s'",line);
-      return false;
-    }//not a pair
-    *value='\0';//overwrite '=' with NULL
-    value++;//points to value //if envvar has only 'NAME=' this points to '\0'
-    if (*value=='\0') { return false; }//dont import vars as 'NAME='
-    //excluir envvars que tienen LD* o "ROOTPATH*"
-    const char* filter[]={"ROOTPATH","LD",NULL};
-    if (!include(filter,name)) {
-      //vwritelog("Env var accepted '%s=%s' (sz: %d)",name,value,strlen(name)); //BUG: al descomentar los vwrite, a veces casca (puede que setenv falle tb)
-      if (setenv(name,value,0)!=0) {//fix var not overwritting
-	vwritelog("Failed setting environment with %s: %m",line);
-	success=false;
-      }
-    //} else {
-      //vwritelog("Env var rejected '%s=%s' (sz: %d)",name,value,strlen(name));
+      vwritelog("Invalid environment var assignation, missing equal char: '%s'",name);
+      return false;//not a pair
     }
-    //vwritelog("Setting envvar: '%s' = '%s'",name,value);
-    free(name);
+    value++;//points to value //if envvar has only 'NAME=' this points to '\0'
+    if (*value=='\0') {//dont import vars as 'NAME='
+      return false;
+    }
   }
-  return success;
+  return true;
 }
 
 /*
  * load_env: cargar /etc/environment
  */
 static bool load_env(void) {
-  char filepath[MAX_PATH];
+  char envfilepath[MAX_PATH];
   {
     const char *const permMsg="Permissions of " ENV_FILE " file must be owned for root:root and 'other' readable only";
     const char *const perm="---r#-r#-r--";
-    if (!build_and_test_path("%s", ENV_FILE, permMsg, perm, filepath)) {
+    if (!build_and_test_path("%s", ENV_FILE, permMsg, perm, envfilepath)) {
       writelog("Failed building/testing environment file path");
       return false;
     }
   }
   char line[MAX_PATH];
-  //open file, take data and close file
-  FILE* fp=fopen(filepath,"r");
-  if (fp==NULL) {
-    vwritelog("Error opening %s file: %m",filepath);
+  if (!got_valid_line(false, envfilepath, valid_env_line, action_env_line, line)) {
+    //writelog("Unable to find valid proc line");
     return false;
-  }
-  bool success=true;
-  //read valid lines (neither commented nor empty)
-  //could use that because gentoo autogenerated has \n always (cat | hexdump -c)
-  while (success) {
-    //read valid line (neither commented nor empty)
-    success=read_valid_line_from_file(&fp,filepath,valid_env_line,line);//valid_env_line do setenv for valid env vars
-  }
-  if (fp==NULL) {
-    writelog("Stream error");
-    return false;
-  } else {//have to close
-    //last line of file have newline char
-    //close file
-    if (fclose(fp)!=0) {
-      fp=NULL;
-      vwritelog("Failed to close %s file pointer: %m",filepath);
-      return false;
-    }
-    fp=NULL;
   }
   return true;
 }
@@ -1627,7 +1625,7 @@ static void start_session(struct pamdata *const pampst) {
       memset(session,0,2*sizeof(char*));
       session[0]=DEFAULT_SESSION;
     } else {//doesnt has default value because some rc exists
-      if (!got_valid_line(hasShell,xloginrc,got_first_line_action,sessionbin)) {
+      if (!got_valid_line(hasShell, xloginrc, valid_not_commented_or_null_line, action_first_line, sessionbin)) {
 	//writelog("Cound not get valid line in xloginrc");
 	//use default
 	if (!snprintf_managed(sessionbin,MAX_PATH, "%s", DEFAULT_SESSION)) {//allow ":lxde"? BUG: see if keep this
@@ -1698,7 +1696,7 @@ static void start_session(struct pamdata *const pampst) {
 	}
 	*/
 	//open file and take data
-	if (!got_valid_line(hasShell,sessionrc,got_line_login_action,sessionbin)) {
+	if (!got_valid_line(hasShell, sessionrc, valid_not_commented_or_null_line, action_login_line, sessionbin)) {
 	  writelog("Cound not get valid line in sessionrc");
 	  _exit(EXIT_FAILURE);
 	}
@@ -1796,7 +1794,7 @@ static void start_session(struct pamdata *const pampst) {
       _exit(EXIT_FAILURE);
     }
     //run logout script
-    if (!got_valid_line(hasShell,logout_sessionrc,got_line_logout_action,sessionbin)) {
+    if (!got_valid_line(hasShell, logout_sessionrc, valid_not_commented_or_null_line, action_logout_line, sessionbin)) {
       writelog("Cound not get valid line in logout sessionrc");
       _exit(EXIT_FAILURE);
     }
@@ -3243,39 +3241,39 @@ cleanup:
     //got_valid_line de start_session: lee las lineas descartando comentadas y lee como ultima linea la que empieza con '*' (exec line) requerida
     char buf1[] = "/usr/bin/xterm -rv\n*twm\n%";//obtengo '%' y EOF al final; pero no se lee porque llego solo hasta la linea '*'
     const char *const results1[]={"/usr/bin/xterm -rv","*twm",NULL};
-    if (!test__read_valid_line_from_file(buf1,results1,valid_xloginrc_line)) {//no lee '%' y por eso no esta en results array
+    if (!test__read_valid_line_from_file(buf1,results1,valid_not_commented_or_null_line)) {//no lee '%' y por eso no esta en results array
       writelog("test__read_valid_line_from_file: test1 failed");
       return false;
     }
     //
     char buf2[] = "/usr/bin/xterm -rv\n*twm\n";//obtengo \n y EOF al final
-    if (!test__read_valid_line_from_file(buf2,results1,valid_xloginrc_line)) {
+    if (!test__read_valid_line_from_file(buf2,results1,valid_not_commented_or_null_line)) {
       writelog("test__read_valid_line_from_file: test2 failed");
       return false;
     }
 
     char buf3[] = "/usr/bin/xterm -rv\n*twm";//obtengo solo EOF al final y no es un error
-    if (!test__read_valid_line_from_file(buf3,results1,valid_xloginrc_line)) {//this test have to fail, not allowed forgot last commented line
+    if (!test__read_valid_line_from_file(buf3,results1,valid_not_commented_or_null_line)) {//this test have to fail, not allowed forgot last commented line
       writelog("test__read_valid_line_from_file: test3 failed");
       return false;
     }
 
     char buf4[] = " /usr/bin/xterm -rv\n*twm ";//obtengo solo EOF al final y no es un error
-    if (!test__read_valid_line_from_file(buf4,results1,valid_xloginrc_line)) {//this test have to fail, not allowed forgot last commented line
+    if (!test__read_valid_line_from_file(buf4,results1,valid_not_commented_or_null_line)) {//this test have to fail, not allowed forgot last commented line
       writelog("test__read_valid_line_from_file: test4 failed");
       return false;
     }
 
     char buf5[] = "#comm1\n/usr/bin/xterm -rv\n#comm2\n*twm\n%";//obtengo '%' y EOF al final; pero no se lee porque llego solo hasta la linea '*'
     const char *const results5[]={"/usr/bin/xterm -rv","*twm",NULL};
-    if (!test__read_valid_line_from_file(buf5,results5,valid_xloginrc_line)) {//no lee '%' y por eso no esta en results array
+    if (!test__read_valid_line_from_file(buf5,results5,valid_not_commented_or_null_line)) {//no lee '%' y por eso no esta en results array
       writelog("test__read_valid_line_from_file: test5 failed");
       return false;
     }
 
     char buf6[] = "#comm1\n/usr/bin/xterm -rv\n#comm2\ntwm\n%";//obtengo '%' y EOF al final; pero no se lee porque llego solo hasta la linea '*'
     const char *const results6[]={"/usr/bin/xterm -rv","twm","%",NULL};
-    if (test__read_valid_line_from_file(buf6,results6,valid_xloginrc_line)) {//no lee '%' y por eso no esta en results array
+    if (test__read_valid_line_from_file(buf6,results6,valid_not_commented_or_null_line)) {//no lee '%' y por eso no esta en results array
       writelog("test__read_valid_line_from_file: test6 failed");
       return false;
     } else {
