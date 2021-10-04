@@ -909,11 +909,13 @@ static bool exists_pamconfig(void) {
 static bool exists_xloginrc(char xloginrc[MAX_PATH]) {
   const char *const permMsg="Permissions of xloginrc files must be owned for root:root and 'other' readable only";
   const char *const perm="---rw-r--r--";
-  if (!build_and_test_path("%s/.xloginrc", user.home, permMsg, 'r', perm, xloginrc)) {
+  //podria hacer un rc con opciones para usuario y hacer que la opcion del script de usuario se validase contra esa lista, entonces el fichero podria ser own por el user
+  //implementado en esta misma funcion
+  //if (!build_and_test_path("%s/.xloginrc", user.home, permMsg, 'r', perm, xloginrc)) {//disable user sript support, needed something more secure
     if (!build_and_test_path("%s", XLOGINDIR "/xloginrc", permMsg, 'r', perm, xloginrc)) {
       return false;
     }
-  }
+    //}
   return true;
 }
 
