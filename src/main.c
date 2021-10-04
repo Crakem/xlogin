@@ -62,6 +62,8 @@
 #include <paths.h>
 #endif
 
+#define XSOCKETDIR _PATH_TMP ".X11-unix/"
+
 #include <errno.h>
 #include <libgen.h> //dirname(3)
 
@@ -217,8 +219,8 @@ static bool got_valid_line(const bool hasShell, const char sessionrc[MAX_PATH], 
 			   bool (*action)(bool *const, const bool, char[MAX_PATH]), char sessionbin[MAX_PATH]);
 static bool include(const char* *const patterns,const char *const str);
 #ifndef USE_PAM
-static bool action_env_line(bool *const success, const bool hasShell, char line[MAX_PATH]);
 static bool valid_env_line(const char line[MAX_PATH]);
+static bool action_env_line(bool *const success, const bool hasShell, char line[MAX_PATH]);
 static bool load_env(void);
 #else
 static bool exists_pamconfig(void);
@@ -237,7 +239,7 @@ static bool perm_str_to_chmod_cmd(const char* ptr, char strchmod[CHMODSZ]);
 static bool test_perms_(const mode_t* perms, const mode_t perm,const char* strperm);
 static bool test_perms(const mode_t perm,const char strperm[FPERMSZ]);
 static bool test_filetype(const mode_t modetype, const char type);
-static bool check_operms(const char* file, const char type, const char strperm[FPERMSZ], const short uid, const short gid);
+static bool check_operms(const int dirFd, const char* file, const char type, const char strperm[FPERMSZ], const short uid, const short gid);
 #ifdef USE_PAM
 static void show_pam_error(pam_handle_t *const pamh, const int errnum);
 static bool set_pam_timeout(void);
@@ -476,7 +478,7 @@ static bool setup_xauth(char authfile[AUTHFILE_SZ]) {
   //inicializar authfile en el HOME del user (no dentro del fork porque no comparte variables con main, tiene una copia)
   if (!snprintf_managed(authfile,AUTHFILE_SZ,"%s/.Xauthority",user.home))
     return false;
-  
+
   //fork before drop priv
   const pid_t child_pid=fork();
   if ( child_pid < 0 ){
@@ -586,13 +588,11 @@ static pid_t start_xserver(char *const default_vt) {
     if (signal(SIGUSR1, SIG_IGN)==SIG_ERR) {//make server signalling parent with SIGUSR1 when ready (taken from xinit src)
       writelog("Failed to setup xserver sigusr1 signaler");
       _exit(EXIT_FAILURE);
-    }  
-    /*
-    char* display=getenv("DISPLAY");//dont trust environment
-    if (display==NULL){
-      display=":0";
     }
-    */
+
+    //this don't change socket perms
+    //umask(S_IROTH | S_IWOTH | S_IXOTH);//007
+
     char *const display=":0";//el parametro de Xorg fd permite que sea el quien defina displayNum
     //vt autoselect to 'current+1'
     //char *const xserver[]={default_xserver,display,"vt07","-retro","-nolisten","tcp","-nolisten","local","-auth",authfile,'\0'};
@@ -621,18 +621,30 @@ static pid_t start_xserver(char *const default_vt) {
   alarm(0);
   //for display :0 (ver opcion fd de Xorg)
   //const char socket[]="/tmp/.X11-unix/X0";
-  const char socket[]= _PATH_TMP ".X11-unix/X0";//BUG corregir si DISPLAY esta definida?
+  //const char socket[]= _PATH_TMP ".X11-unix/X0";//BUG corregir si DISPLAY esta definida?
+  const char socket[]= XSOCKETDIR "X0";//BUG corregir si DISPLAY esta definida?
+  const char socketdir[]= XSOCKETDIR;
   //while [ ! -e ${SOCKET} ];do sleep 1s;done
 
+  //unusables 'no such file or dir'
+  //const int socketFd = open(socket,O_NOCTTY | O_NOFOLLOW | O_NONBLOCK | O_RDONLY);
+  //const int socketFd = open(socket,O_NOCTTY | O_NOFOLLOW | O_NONBLOCK | O_PATH);//??
+  const int socketdirFd = open(socketdir, O_NOCTTY | O_NOFOLLOW | O_NONBLOCK | O_RDONLY);
+  if (socketdirFd==-1) {
+    vwritelog("Failed to open file descriptor to xserver socket directory '%s' : %m",socketdir);
+    goto cleanupx;
+  }
+
   //check socket exists
-  if (access(socket,F_OK)!=0) {
+  //if (access(socket,F_OK)!=0) {
+  if (faccessat(socketdirFd, socket, F_OK, AT_SYMLINK_NOFOLLOW)!=0) {
     ewritelog("Failed to access socket");
     goto cleanup;
   }
 
   {//check perms of initial socket (root:root) no hijacking!
     //perm checks
-    if (!check_operms(socket,'s',"---rw#rw#r##",0,0)) {//0777
+    if (!check_operms(socketdirFd, socket, 's', "---rw#rw#r##", 0, 0)) {//0777
       writelog("Incorrect xserver socket permissions");
       goto cleanup;
     }
@@ -645,21 +657,34 @@ static pid_t start_xserver(char *const default_vt) {
   //quiero srwxrwx---
   //chmod o-rwx ${SOCKET}
   //  umask(S_IRWXO);
-  if (chmod(socket,S_IRWXU | S_IRWXG)!=0){
+  //if (chmod(socket,S_IRWXU | S_IRWXG)!=0) {
+  //if (fchmod(socketFd, S_IRWXU | S_IRWXG)!=0) {
+  if (fchmodat(socketdirFd, socket, S_IRWXU | S_IRWXG, AT_SYMLINK_NOFOLLOW)!=0) {
     //fprintf(stderr,"Failed to chmod xserver socket\n");
     writelog("Failed to chmod xserver socket");
     goto cleanup;
   }
   //chgrp ${USER} ${SOCKET}
-  if (lchown(socket,-1,user.gid)!=0){//-1 keeps uid (==0 hopes)
+  //if (lchown(socket,-1,user.gid)!=0) {//-1 keeps uid (==0 hopes)
+  //if (fchown(socketFd,-1,user.gid)!=0) {//-1 keeps uid (==0 hopes)
+  if (fchownat(socketdirFd, socket, -1, user.gid, AT_SYMLINK_NOFOLLOW)!=0) {//-1 keeps uid (==0 hopes)
     //fprintf(stderr,"Failed to chown xserver socket\n");
     writelog("Failed to chown xserver socket");
     goto cleanup;
   }
 
+  if (close(socketdirFd)!=0) {
+    ewritelog("Failed to close xserver socket file descriptor");
+    goto cleanupx;
+  }
+
   return pid;
 
  cleanup:
+  if (close(socketdirFd)!=0) {
+    ewritelog("Failed to close xserver socket file descriptor");
+  }
+ cleanupx:
   if (kill(pid, SIGINT)!=0) {//kill X or blank screen appears
     ewritelog("Failed to kill xserver");
   }
@@ -785,7 +810,7 @@ static void splitasign(int i, const char delim[], char arr[], char* prog[]) {
 }
 
 /*
- * splitstr: convert from char arr[] to argv format splitting with delimiters in delim[]. 
+ * splitstr: convert from char arr[] to argv format splitting with delimiters in delim[].
  *   Changes arr! and arr can't be freed because ptrprog's char[] are references to it.
  *           Desde char array con delimitadores, obtener char** sin delimitadores y splitted en formato argv
  *           ejemplo: "xterm -rv bash" resulta en { "xterm", "-rv", "bash" , NULL}; hay que hacer free de *ptrprog
@@ -910,7 +935,7 @@ static bool build_and_test_path(const char *const template, const char *const fi
     return false;
   } else {
     //perm checks
-    if (!check_operms(filepath,filetype,perm,0,0)) {
+    if (!check_operms(-1,filepath,filetype,perm,0,0)) {
       writelog(permMsg);
       _exit(EXIT_FAILURE);
     }
@@ -1274,59 +1299,6 @@ static bool action_logout_line(bool *const success, const bool hasShell, char se
 }
 
 /*
- * action_env_line: parse and register env vars
- * profile: run actions for all found to end without failing
- */
-static bool action_env_line(bool *const success, const bool hasShell, char name[MAX_PATH]) {
-  bool eof=false;
-  if (!(*success)) {//eof
-    *success=true;//ok if we reach eof
-    eof=true;//get out of while and proceed to close file if remains open
-  } else {
-    //just checked is valid pair
-    /*
-    char* name=strdup(line);//needed because we change '=' with '\0'
-    if (name==NULL) {
-      ewritelog("Error duplicating string");
-      *success=false;
-      eof=true;
-      return eof;
-    }
-    */
-    char* value=strrchr(name,'=');//point to last '=' char
-    /*
-    if (value==NULL) {
-      vwritelog("Invalid environment var assignation, missing equal char: '%s'",line);
-      goto failed;//not a pair
-    }
-    */
-    *value='\0';//overwrite '=' with NULL
-    value++;//points to value //if envvar has only 'NAME=' this points to '\0'
-    /*
-    if (*value=='\0') {
-      goto cleanup;//empty pair; dont import vars as 'NAME='
-      //ignore and no fail
-    }
-    */
-    //excluir envvars que tienen LD* o "ROOTPATH*"
-    const char* filter[]={"ROOTPATH","LD",NULL};
-    if (!include(filter,name)) {
-      //vwritelog("Env var accepted '%s=%s' (sz: %d)",name,value,strlen(name)); //BUG: al descomentar los vwrite, a veces casca (puede que setenv falle tb)
-      if (setenv(name,value,0)!=0) {//fix var not overwritting
-	vwritelog("Failed setting environment with %s: %m",name);
-	*success=false;
-	eof=true;
-      }
-      //} else {
-      //vwritelog("Env var rejected '%s=%s' (sz: %d)",name,value,strlen(name));
-    }
-    //vwritelog("Setting envvar: '%s' = '%s'",name,value);
-    //free(name);
-  }
-  return eof;
-}
-
-/*
  * got_valid_line: read file sessionrc and store last valid line in sessionbin
  * valid lines choosed with 'validate' function, 'action' function could continue/finish after a successful find and change successful status with more test
  */
@@ -1402,6 +1374,59 @@ static bool valid_env_line(const char name[MAX_PATH]) {
     }
   }
   return true;
+}
+
+/*
+ * action_env_line: parse and register env vars
+ * profile: run actions for all found to end without failing
+ */
+static bool action_env_line(bool *const success, const bool hasShell, char name[MAX_PATH]) {
+  bool eof=false;
+  if (!(*success)) {//eof
+    *success=true;//ok if we reach eof
+    eof=true;//get out of while and proceed to close file if remains open
+  } else {
+    //just checked is valid pair
+    /*
+    char* name=strdup(line);//needed because we change '=' with '\0'
+    if (name==NULL) {
+      ewritelog("Error duplicating string");
+      *success=false;
+      eof=true;
+      return eof;
+    }
+    */
+    char* value=strrchr(name,'=');//point to last '=' char
+    /*
+    if (value==NULL) {
+      vwritelog("Invalid environment var assignation, missing equal char: '%s'",line);
+      goto failed;//not a pair
+    }
+    */
+    *value='\0';//overwrite '=' with NULL
+    value++;//points to value //if envvar has only 'NAME=' this points to '\0'
+    /*
+    if (*value=='\0') {
+      goto cleanup;//empty pair; dont import vars as 'NAME='
+      //ignore and no fail
+    }
+    */
+    //excluir envvars que tienen LD* o "ROOTPATH*"
+    const char* filter[]={"ROOTPATH","LD",NULL};
+    if (!include(filter,name)) {
+      //vwritelog("Env var accepted '%s=%s' (sz: %d)",name,value,strlen(name)); //BUG: al descomentar los vwrite, a veces casca (puede que setenv falle tb)
+      if (setenv(name,value,0)!=0) {//fix var not overwritting
+	vwritelog("Failed setting environment with %s: %m",name);
+	*success=false;
+	eof=true;
+      }
+      //} else {
+      //vwritelog("Env var rejected '%s=%s' (sz: %d)",name,value,strlen(name));
+    }
+    //vwritelog("Setting envvar: '%s' = '%s'",name,value);
+    //free(name);
+  }
+  return eof;
 }
 
 /*
@@ -1528,7 +1553,7 @@ static void start_session(struct pamdata *const pampst) {
   if (!set_uid_gid(user.name,user.uid,user.gid)) {//fix user
     writelog("Failed dropping privileges for session start");
     _exit(EXIT_FAILURE);
-  } 
+  }
 #endif
   //set umask ~047
   umask(S_IWGRP | S_IROTH | S_IWOTH | S_IXOTH);
@@ -1835,7 +1860,7 @@ static bool check_parents_(const char *const permMsg, const char *const perm, ch
   //if (strcmp(cdir,dircp)!=0) {//no baja mas de /
   if (strcmp(cdir,"/")!=0) {//no baja mas de /
     //free(dircp);
-    const bool current_chk=check_operms(cdir,'d',perm,0,0);
+    const bool current_chk=check_operms(-1,cdir,'d',perm,0,0);
     //vwritelog("copy: %s: %s\n",cdir,current_chk==true?"true":"false");
     if (!current_chk) {
       vwritelog(permMsg,cdir);
@@ -2263,7 +2288,7 @@ static bool test_filetype(const mode_t modetype, const char type) {
  *   uid,gid checks active if >0
  *   man 7 inode, man fstat, man fstatat, man strmode
  */
-static bool check_operms(const char* file, const char type, const char strperm[FPERMSZ], const short uid, const short gid) {
+static bool check_operms(const int dirFd, const char* file, const char type, const char strperm[FPERMSZ], const short uid, const short gid) {
   const unsigned short sz=(unsigned short) strlen(strperm);
   if ( strlen(strperm) != FPERMSZ-1 ) {//check proper request
     fprintf(stderr,"Invalid permissions, needed 12 chars, current %d for file %s\n",sz,file);
@@ -2271,10 +2296,18 @@ static bool check_operms(const char* file, const char type, const char strperm[F
     return false;
   }
   struct stat buf;
-  if (stat(file,&buf)<0){
-    fprintf(stderr,"Could not read file %s: %m\n",file);
-    vwritelog("Could not read file %s: %m",file);
-    return false;
+  if (dirFd==-1) {
+    if (stat(file,&buf)<0){
+      fprintf(stderr,"Could not read file %s: %m\n",file);
+      vwritelog("Could not read file %s: %m",file);
+      return false;
+    }
+  } else {
+    if (fstatat(dirFd,file,&buf,AT_SYMLINK_NOFOLLOW)<0){
+      fprintf(stderr,"Could not read file %s: %m\n",file);
+      vwritelog("Could not read file %s: %m",file);
+      return false;
+    }
   }
   //test file type
   if (!test_filetype(buf.st_mode,type))  {
@@ -2383,8 +2416,8 @@ static bool set_utmp(char name[FIELDSZ], pid_t child_sid, const char* ttyNumber)
 
   //const gid_t utmpgroup=UTMP_GROUP;
   //previous perms checks
-  if ( ( hasUtmp && ( !check_operms(utmp_path, 'r', "---rw-rw-r--",0,utmpgroup) || !check_parents(NULL,NULL,utmp_path) ) ) ||
-       ( hasWtmp && ( !check_operms(wtmp_path, 'r', "---rw-rw-r--",0,utmpgroup) || !check_parents(NULL,NULL,wtmp_path) ) ) ) {
+  if ( ( hasUtmp && ( !check_operms(-1,utmp_path, 'r', "---rw-rw-r--",0,utmpgroup) || !check_parents(NULL,NULL,utmp_path) ) ) ||
+       ( hasWtmp && ( !check_operms(-1,wtmp_path, 'r', "---rw-rw-r--",0,utmpgroup) || !check_parents(NULL,NULL,wtmp_path) ) ) ) {
     fprintf(stderr,"utmp/wtmp file integrity must be keep (see: man 5 utmp)\n");
     sleep(10);
     return false;
@@ -2507,7 +2540,7 @@ static int auth_user(struct pamdata *const pampst) {
       */
     }
     //denegate if user.home is o+rwx
-    if (!check_operms(user.home,'d',"---rwx###---",user.uid,user.gid)) {
+    if (!check_operms(-1,user.home,'d',"---rwx###---",user.uid,user.gid)) {
       //fprintf(stderr,"Insecure user homedir, magic cookie could be accesible to others. Try running 'chmod o-rwx %s'\n",user.home);
       fprintf(stderr,"Insecure user homedir, magic cookie could be accesible to others. Try fixing permissions of %s\n",user.home);
       sleep(10);
@@ -2767,7 +2800,7 @@ int main(int argc,char *argv[]) {
       exit(EXIT_FAILURE);
     }
     //check rootfs perms
-    if (!check_operms("/", 'd', "---rwxr#xr-x",0,0)) {
+    if (!check_operms(-1,"/", 'd', "---rwxr#xr-x",0,0)) {
       writelog("Invalid rootfs perms. Must be root:root owned and 'other' no writeable");
       exit(EXIT_FAILURE);
     }
