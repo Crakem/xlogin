@@ -187,7 +187,8 @@ static bool setup_xauth(char[AUTHFILE_SZ]);
 static void sigIgnore(const int sigNum);
 static void sigAbort(const int sigNum);
 static pid_t start_xserver(char *const default_vt);
-static bool build_and_test_path(const char *const template, const char *const filename, const char permMsg[], const char perm[],char filepath[MAX_PATH]);
+static bool build_and_test_path(const char *const template, const char *const filename, const char permMsg[], const char filetype, const char perm[],
+				char filepath[MAX_PATH]);
 static bool exists_xloginrc(char xloginrc[MAX_PATH]);
 static bool exists_proc(char procdir[MAX_PATH]);
 static bool valid_not_commented_or_null_line(const char sessionbin[MAX_PATH]);
@@ -227,7 +228,8 @@ static bool argv2str(char* *const argv, const size_t argvsz, const char separato
 static bool perm_str_to_chmod_cmd(const char* ptr, char strchmod[CHMODSZ]);
 static bool test_perms_(const mode_t* perms, const mode_t perm,const char* strperm);
 static bool test_perms(const mode_t perm,const char strperm[FPERMSZ]);
-static bool check_operms(const char* file, const char strperm[FPERMSZ], const short uid, const short gid);
+static bool test_filetype(const mode_t modetype, const char type);
+static bool check_operms(const char* file, const char type, const char strperm[FPERMSZ], const short uid, const short gid);
 #ifdef USE_PAM
 static void show_pam_error(pam_handle_t *const pamh, const int errnum);
 static bool set_pam_timeout(void);
@@ -622,7 +624,7 @@ static pid_t start_xserver(char *const default_vt) {
 
   {//check perms of initial socket (root:root) no hijacking!
     //perm checks
-    if (!check_operms(socket,"---rw#rw#r##",0,0)) {//0777
+    if (!check_operms(socket,'s',"---rw#rw#r##",0,0)) {//0777
       writelog("Incorrect xserver socket permissions");
       goto cleanup;
     }
@@ -859,7 +861,7 @@ static bool exists_pamconfig(void) {
   const char *const permMsg="Permissions of xlogin pam file must be owned for root:root and 'other' readable only";
   const char *const perm="---rw-r--r--";
   char pamconfig[MAX_PATH];
-  if (!build_and_test_path("%s", CONFIG_PAM, permMsg, perm, pamconfig)) {
+  if (!build_and_test_path("%s", CONFIG_PAM, permMsg, 'r', perm, pamconfig)) {
     ewritelog("Error finding PAM's xlogin config file '" CONFIG_PAM "'");
     return false;
   }
@@ -874,8 +876,8 @@ static bool exists_pamconfig(void) {
 static bool exists_xloginrc(char xloginrc[MAX_PATH]) {
   const char *const permMsg="Permissions of xloginrc files must be owned for root:root and 'other' readable only";
   const char *const perm="---rw-r--r--";
-  if (!build_and_test_path("%s/.xloginrc", user.home, permMsg, perm, xloginrc)) {
-    if (!build_and_test_path("%s", XLOGINDIR "/xloginrc", permMsg, perm, xloginrc)) {
+  if (!build_and_test_path("%s/.xloginrc", user.home, permMsg, 'r', perm, xloginrc)) {
+    if (!build_and_test_path("%s", XLOGINDIR "/xloginrc", permMsg, 'r', perm, xloginrc)) {
       return false;
     }
   }
@@ -887,7 +889,8 @@ static bool exists_xloginrc(char xloginrc[MAX_PATH]) {
  * build_test_path: return filepath with path build from template and filename, and test if exists xloginrc file in path
  *                  permMsg es el mensaje de error si los permisos fallan, y perm es el permiso en str no permitido
  */
-static bool build_and_test_path(const char *const template, const char *const filename, const char permMsg[], const char perm[],char filepath[MAX_PATH]) {
+static bool build_and_test_path(const char *const template, const char *const filename, const char permMsg[], const char filetype, const char perm[],
+				char filepath[MAX_PATH]) {
   //build path
   if (!snprintf_managed(filepath,MAX_PATH,template,filename)) {
     vwritelog("Path to %s too long or other error",filename);
@@ -899,7 +902,7 @@ static bool build_and_test_path(const char *const template, const char *const fi
     return false;
   } else {
     //perm checks
-    if (!check_operms(filepath,perm,0,0)) {
+    if (!check_operms(filepath,filetype,perm,0,0)) {
       writelog(permMsg);
       _exit(EXIT_FAILURE);
     }
@@ -1089,7 +1092,7 @@ static bool action_yama_line(bool *const success, const bool hasShell, char line
 static bool exists_proc(char procdir[MAX_PATH]) {
   const char *const permMsg="Permissions of " PROC_MOUNTS " file must be owned for root:root and 'other' readable only";
   const char *const perm="---r--r--r--";
-  return build_and_test_path("%s", PROC_MOUNTS, permMsg, perm, procdir);
+  return build_and_test_path("%s", PROC_MOUNTS, permMsg, 'r', perm, procdir);
 }
 
 /*
@@ -1401,7 +1404,7 @@ static bool load_env(void) {
   {
     const char *const permMsg="Permissions of " ENV_FILE " file must be owned for root:root and 'other' readable only";
     const char *const perm="---r#-r#-r--";
-    if (!build_and_test_path("%s", ENV_FILE, permMsg, perm, envfilepath)) {
+    if (!build_and_test_path("%s", ENV_FILE, permMsg, 'r', perm, envfilepath)) {
       writelog("Failed building/testing environment file path");
       return false;
     }
@@ -1666,7 +1669,7 @@ static void start_session(struct pamdata *const pampst) {
 	{//logout script name if exists
 	  const char *const permMsg="Permissions of logout sessionrc files must be owned for root:root and 'other' readable only";
 	  const char *const perm="---rw-r--r--";
-	  if (build_and_test_path(XLOGINDIR "/%s_o", sessionName, permMsg, perm, logout_sessionrc)) {//no recheck parents!
+	  if (build_and_test_path(XLOGINDIR "/%s_o", sessionName, permMsg, 'r', perm, logout_sessionrc)) {//no recheck parents!
 	    need_logout=true;
 	  }
 	}
@@ -1824,7 +1827,7 @@ static bool check_parents_(const char *const permMsg, const char *const perm, ch
   //if (strcmp(cdir,dircp)!=0) {//no baja mas de /
   if (strcmp(cdir,"/")!=0) {//no baja mas de /
     //free(dircp);
-    const bool current_chk=check_operms(cdir,perm,0,0);
+    const bool current_chk=check_operms(cdir,'d',perm,0,0);
     //vwritelog("copy: %s: %s\n",cdir,current_chk==true?"true":"false");
     if (!current_chk) {
       vwritelog(permMsg,cdir);
@@ -2201,14 +2204,58 @@ static bool test_perms(const mode_t perm,const char strperm[FPERMSZ]) {
 }
 
 /*
+ *  test_filetype: check if file match filetype
+ */
+static bool test_filetype(const mode_t modetype, const char type) {
+  if (type=='d') {
+    if(!S_ISDIR(modetype)) {
+      writelog("Error: filetype is not directory");
+      return false;
+    }
+  } else if (type=='r') {
+    if (!S_ISREG(modetype)) {
+      writelog("Error: filetype is not regular file");
+      return false;
+    }
+  } else if (type=='s') {
+    if (!S_ISSOCK(modetype)) {
+      writelog("Error: filetype is not socket");
+      return false;
+    }
+  } else if (type=='c') {
+    if (!S_ISCHR(modetype)) {
+      writelog("Error: filetype is not character device");
+      return false;
+    }
+  } else if (type=='b') {
+    if (!S_ISBLK(modetype)) {
+      writelog("Error: filetype is not block device");
+      return false;
+    }
+  } else if (type=='f' ) {
+    if (!S_ISFIFO(modetype)) {
+      writelog("Error: filetype is not fifo");
+      return false;
+    }
+  } else if (type=='l') {
+    if (!S_ISLNK(modetype)) {
+      writelog("Error: filetype is not link");
+      return false;
+    }
+  } else {
+    writelog("Error: filetype not recognized");
+    return false;
+  }
+  return true;
+}
+
+/*
  * check_operms: check if file have perms specified
  *   file is filepath, strperms es "---rw-rw-r--" ver test_perms
  *   uid,gid checks active if >0
  *   man 7 inode, man fstat, man fstatat, man strmode
  */
-//static bool check_operms(const char* file, const short operms, const char* chmodperm, const uid_t uid, const gid_t gid) {
-//static bool check_operms(const char* file, const short operms, const char* chmodperm, const short uid, const short gid) {
-static bool check_operms(const char* file, const char strperm[FPERMSZ], const short uid, const short gid) {
+static bool check_operms(const char* file, const char type, const char strperm[FPERMSZ], const short uid, const short gid) {
   const unsigned short sz=(unsigned short) strlen(strperm);
   if ( strlen(strperm) != FPERMSZ-1 ) {//check proper request
     fprintf(stderr,"Invalid permissions, needed 12 chars, current %d for file %s\n",sz,file);
@@ -2219,6 +2266,10 @@ static bool check_operms(const char* file, const char strperm[FPERMSZ], const sh
   if (stat(file,&buf)<0){
     fprintf(stderr,"Could not read file %s: %m\n",file);
     vwritelog("Could not read file %s: %m",file);
+    return false;
+  }
+  //test file type
+  if (!test_filetype(buf.st_mode,type))  {
     return false;
   }
   //vwritelog("Octal perms # %jo #",(uintmax_t) buf.st_mode);//da 100664 no exactamente octal
@@ -2324,8 +2375,8 @@ static bool set_utmp(char name[FIELDSZ], pid_t child_sid, const char* ttyNumber)
 
   //const gid_t utmpgroup=UTMP_GROUP;
   //previous perms checks
-  if ( ( hasUtmp && ( !check_operms(utmp_path, "---rw-rw-r--",0,utmpgroup) || !check_parents(NULL,NULL,utmp_path) ) ) ||
-       ( hasWtmp && ( !check_operms(wtmp_path, "---rw-rw-r--",0,utmpgroup) || !check_parents(NULL,NULL,wtmp_path) ) ) ) {
+  if ( ( hasUtmp && ( !check_operms(utmp_path, 'r', "---rw-rw-r--",0,utmpgroup) || !check_parents(NULL,NULL,utmp_path) ) ) ||
+       ( hasWtmp && ( !check_operms(wtmp_path, 'r', "---rw-rw-r--",0,utmpgroup) || !check_parents(NULL,NULL,wtmp_path) ) ) ) {
     fprintf(stderr,"utmp/wtmp file integrity must be keep (see: man 5 utmp)\n");
     sleep(10);
     return false;
@@ -2448,7 +2499,7 @@ static int auth_user(struct pamdata *const pampst) {
       */
     }
     //denegate if user.home is o+rwx
-    if (!check_operms(user.home,"---rwx###---",user.uid,user.gid)) {
+    if (!check_operms(user.home,'d',"---rwx###---",user.uid,user.gid)) {
       //fprintf(stderr,"Insecure user homedir, magic cookie could be accesible to others. Try running 'chmod o-rwx %s'\n",user.home);
       fprintf(stderr,"Insecure user homedir, magic cookie could be accesible to others. Try fixing permissions of %s\n",user.home);
       sleep(10);
@@ -2708,7 +2759,7 @@ int main(int argc,char *argv[]) {
       exit(EXIT_FAILURE);
     }
     //check rootfs perms
-    if (!check_operms("/", "---rwxr#xr-x",0,0)) {
+    if (!check_operms("/", 'd', "---rwxr#xr-x",0,0)) {
       writelog("Invalid rootfs perms. Must be root:root owned and 'other' no writeable");
       exit(EXIT_FAILURE);
     }
