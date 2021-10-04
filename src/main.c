@@ -787,7 +787,6 @@ static bool splitstr(const char delim[], char arr[], char*** ptrprog) {
   char *const cparr=strdup(arr);
   if ( cparr == NULL ){
     ewritelog("Failed to strdup array for getting size of split");
-    free(cparr);
     *ptrprog=NULL;
     return false;
   }
@@ -819,7 +818,6 @@ static bool splitstr(const char delim[], char arr[], char*** ptrprog) {
   char *const cparr=strdup(arr);
   if ( cparr == NULL ){
     ewritelog("Failed to strdup array for getting split");
-    free(cparr);
     *ptrprog=NULL;
     return false;
   }
@@ -1023,7 +1021,6 @@ static bool valid_proc_line(const char str[MAX_PATH]) {
   //duplicar el array
   char *const cpstr=strdup(str);
   if ( cpstr == NULL ){
-    free(cpstr);
     ewritelog("Failed to strdup array for getting split while validating proc line");
     exit(EXIT_FAILURE);
   }
@@ -1818,7 +1815,6 @@ static bool check_parents_(const char *const permMsg, const char *const perm, ch
   char *const dircp=strdup(dir);
   if ( dircp == NULL ) {
     ewritelog("Failed to strdup array for checking parents");
-    free(dircp);
     return false;
   }
   */
