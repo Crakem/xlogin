@@ -25,6 +25,14 @@
 #define PACKAGE_VERSION "0.44.0"
 #endif
 
+#include <linux/version.h>
+
+#if LINUX_VERSION_CODE > KERNEL_VERSION(5,8,0)
+#define HIDEPID_INVISIBLE "hidepid=invisible"
+#else
+#define HIDEPID_INVISIBLE "hidepid=2"
+#endif
+
 #ifndef USE_PAM
 #include <sys/types.h>
 #include <signal.h> //kill,signal,(killpg)
@@ -1056,7 +1064,7 @@ static bool action_proc_line(bool *const success, const bool hasShell, char line
       return false;
     }
     //proc /proc proc rw,nosuid,nodev,noexec,relatime,hidepid=invisible 0 0
-    const bool secure=strstr(argvline[3],"hidepid=invisible")==NULL? false:true;
+    const bool secure=strstr(argvline[3],HIDEPID_INVISIBLE)==NULL? false:true;
     free(argvline);argvline=NULL;
     if (!secure) {
       writelog("/proc must be mounted with hidepid=2 (invisible) for protecting magic cookie from stealing");
