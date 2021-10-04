@@ -1591,7 +1591,7 @@ static void start_session(struct pamdata *const pampst) {
       writelog("Failed to set XAUTHORITY envvar");
       _exit(EXIT_FAILURE);
     }
-    //-------------especifico lxde--------------------------begin
+    //-------------especifico xdg--------------------------begin
 
     if (!set_envvar("XDG_CONFIG_HOME","%s/.config",user.home)){
       writelog("Failed to set XDG_CONFIG_HOME envvar");
@@ -1601,8 +1601,22 @@ static void start_session(struct pamdata *const pampst) {
       writelog("Failed to set XDG_DATA_HOME envvar");
       _exit(EXIT_FAILURE);
     }
-
-    //-------------especifico lxde--------------------------end
+    /*
+#ifndef USE_PAM
+    {
+      char envvar[MAX_PATH];
+      if (!vsnprintf_managed(envvar,MAX_PATH,"/run/user/%d",user.uid)) {
+	writelog("Failed to build str for envvar XDG_RUNTIME_DIR");
+	_exit(EXIT_FAILURE);
+      }
+      if (setenv("XDG_RUNTIME_DIR",envvar,0)!=0){
+	ewritelog("Failed to set XDG_RUNTIME_DIR envvar");
+	_exit(EXIT_FAILURE);
+      }
+    }
+#endif
+    */
+    //-------------especifico xdg--------------------------end
 
     if (setenv("HOME",user.home,1)!=0){
       //fprintf(stderr,"Failed to set HOME envvar (%d)\n",errno);
