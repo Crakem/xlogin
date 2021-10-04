@@ -643,7 +643,7 @@ static pid_t start_xserver(char *const default_vt) {
     goto cleanup;
   }
   //chgrp ${USER} ${SOCKET}
-  if (chown(socket,0,user.gid)!=0){
+  if (lchown(socket,-1,user.gid)!=0){//-1 keeps uid (==0 hopes)
     //fprintf(stderr,"Failed to chown xserver socket\n");
     writelog("Failed to chown xserver socket");
     goto cleanup;
