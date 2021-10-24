@@ -3125,7 +3125,12 @@ cleanup:
   {//wait child process group
     //as subreaper could wait for childs adquired
     //for killing process group
+    //get sid of this process
     const pid_t child_sid=getsid(0); //getpgid,getpgrp
+    if (child_sid==(pid_t) -1) {
+      ewritelog("Error getting sid of parent subreaper");
+      main_failure(exit);
+    }
     if (!waitsid_with_log(child_sid)) {
       ewritelog("Error waiting childs process in reaper parent");
     }
