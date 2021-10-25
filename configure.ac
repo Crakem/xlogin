@@ -59,6 +59,25 @@ AC_FUNC_FORK
 AC_FUNC_MALLOC
 AC_CHECK_FUNCS([alarm dup2 getspnam gettimeofday memset putenv setenv socket strdup strerror strrchr strstr])
 
+# Check for system services
+AC_ARG_WITH([syslog],
+            [AS_HELP_STRING([--without-syslog],[disable support for syslog])],
+            [],
+            [
+		AC_CHECK_PROGS([SYSLOG],[syslog rsyslog syslog-ng],[none],[/usr/sbin/$PATH_SEPARATOR/sbin$PATH_SEPARATOR$PATH])
+		AS_IF([test "x$SYSLOG" != xnone],[AC_DEFINE([USE_SYSLOG], [1], [Define if you have syslog])],[])
+	    ])
+
+          AS_IF([test "x$with_syslog" == xyes],
+	        [AC_DEFINE([USE_SYSLOG], [1], [Define if you have syslog])
+		AC_CHECK_PROGS([SYSLOG],[syslog rsyslog syslog-ng],[none],[/usr/sbin/$PATH_SEPARATOR/sbin$PATH_SEPARATOR$PATH])
+		AS_IF([test "x$SYSLOG" != xnone],[],
+			[
+				AC_MSG_WARN([syslog support requested but cannot find binary])
+			])
+		],
+		[])
+
 #AC_CONFIG_FILES([Makefile])
 AC_CONFIG_FILES([
 	Makefile

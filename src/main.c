@@ -19,6 +19,8 @@
 
 #ifdef HAVE_CONFIG_H
 #include <config.h>
+#else
+#include "defconfig.h"
 #endif
 
 #ifndef PACKAGE_VERSION
@@ -186,6 +188,9 @@ static void trim_spaces(char *const sessionbin, char** outcharptr);
 static int splitcount(char arr[], const char delim[]);
 static void splitasign(int i, const char delim[], char arr[],/*out*/ char* prog[]);
 static bool splitstr(const char delim[], char arr[], char ***ptrprog);
+#ifndef USE_SYSLOG
+static void tmpsyslog(const char *const msg);
+#endif
 static void ewritelog(const char *const msg);
 static void writelog(const char *const msg);
 static bool set_uid_gid(const char *const username, const uid_t, const gid_t gid);
@@ -290,16 +295,34 @@ static void printArgv(char* *const prog) {
  * msg to syslog
  */
 static void ewritelog(const char *const msg) {
+#ifdef USE_SYSLOG
   //man 3 syslog
   openlog(NULL,LOG_ODELAY,LOG_DAEMON);
   syslog(LOG_CRIT,"%s: %m",msg);
   closelog();
+#else
+  vwritelog("%s: %m\n",msg);
+#endif
 }
 static void writelog(const char *const msg) {
+#ifdef USE_SYSLOG
   openlog(NULL,LOG_ODELAY,LOG_DAEMON);
   syslog(LOG_CRIT,"%s",msg);
   closelog();
+#else
+  tmpsyslog(msg);
+#endif
 }
+
+#ifndef USE_SYSLOG
+static void tmpsyslog(const char *const msg) {
+  int fd=open(LOGFILE_PATH, O_CREAT | O_APPEND | O_WRONLY, S_IRWXU | S_IRWXG | S_IRWXO );
+  if (fd!=-1) {
+    dprintf(fd,"xlogin: %s\n",msg);
+    close(fd);
+  }
+}
+#endif
 
 /*
  * set_uid_gid: setgid and setuid of process

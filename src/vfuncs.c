@@ -17,10 +17,23 @@
   along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>
+#else
+#include "defconfig.h"
+#endif
+
 #include <stdarg.h>
 #include <stddef.h>//NULL
 #include <syslog.h>//vsyslog
 #include <stdio.h> //vsnprintf
+
+#ifndef USE_SYSLOG
+#include <sys/types.h>//open
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>//close
+#endif
 
 void vwritelog(const char *const template, ...);
 int vsnprintf_managed(char *str, const int size, const char *const template, ...);
@@ -33,9 +46,19 @@ void vwritelog(const char *const template, ...) {
   //man 3 stdarg
   va_list ap;
   va_start(ap,template);
+#ifdef USE_SYSLOG
   openlog(NULL,LOG_ODELAY,LOG_DAEMON);
   vsyslog(LOG_CRIT,template,ap);
   closelog();
+#else
+  int fd=open(LOGFILE_PATH, O_CREAT | O_APPEND | O_WRONLY, S_IRWXU | S_IRWXG | S_IRWXO );
+  if (fd!=-1) {
+    dprintf(fd,"%s","xlogin: ");
+    vdprintf(fd,template,ap);
+    dprintf(fd,"%s","\n");
+    close(fd);
+  }
+#endif
   va_end(ap);
 }
 
