@@ -74,7 +74,7 @@ char* getpass2 (const char *const prompt) {
   }
 
   /* Write the prompt.  */
-  if (fprintf(fp,"%s","Password: ")<0) {
+  if (fprintf(fp,"%s",prompt)<0) {
     fprintf(stderr,"Failed fprintf while writting the prompt");
     return NULL;
   }
