@@ -2,7 +2,7 @@
 # Process this file with autoconf to produce a configure script.
 
 #AC_PREREQ([2.69])
-AC_INIT([xlogin], [0.44.0], [crakem8@gmail.com],[xlogin],[github.com/Crakem])
+AC_INIT([xlogin], [0.44.1], [crakem8@gmail.com],[xlogin],[github.com/Crakem])
 AM_INIT_AUTOMAKE([-Wall -Werror])
 AC_CONFIG_HEADERS([config.h])
 

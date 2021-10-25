@@ -24,7 +24,7 @@
 #endif
 
 #ifndef PACKAGE_VERSION
-#define PACKAGE_VERSION "0.44.0"
+#define PACKAGE_VERSION "0.44.1"
 #endif
 
 #include <linux/version.h>
