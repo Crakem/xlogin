@@ -810,7 +810,7 @@ static void trim_spaces(char *const sessionbin, char** outcharptr) {
   const int sz=strlen(sessionbin);
   if (sz>0) {
     //fill end
-    unsigned short i=sz-1;
+    short i=sz-1;
     while ((i>=0) && (sessionbin[i]==' ')) {
       sessionbin[i--]='\0';
     }
@@ -1013,7 +1013,7 @@ static bool cmd2buf(const bool eof, char sessionbintmp[MAX_PATH], char sessionbi
   char* sessionbintmp2=NULL;
   { //check MAX_PATH not rebased
     const unsigned short maxpath=MAX_PATH;
-    const unsigned short i_newline=strlen(sessionbintmp)-1;
+    const short i_newline=strlen(sessionbintmp)-1;
     if (i_newline<0) {
       writelog("String too short, must contain at least newline plus null");
       return false;
