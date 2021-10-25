@@ -246,7 +246,8 @@ static bool perm_str_to_chmod_cmd(const char* ptr, char strchmod[CHMODSZ]);
 static bool test_perms_(const mode_t* perms, const mode_t perm,const char* strperm);
 static bool test_perms(const mode_t perm,const char strperm[FPERMSZ]);
 static bool test_filetype(const mode_t modetype, const char type);
-static bool check_operms(const int dirFd, const char* file, const char type, const char strperm[FPERMSZ], const short uid, const short gid);
+static bool check_perms(const int dirFd, const int fileFd, const char* filepath, const char type, const short nlinks, const char strperm[FPERMSZ],
+			const short uid, const short gid);
 #ifdef USE_PAM
 static void show_pam_error(pam_handle_t *const pamh, const int errnum);
 static bool set_pam_timeout(void);
@@ -669,7 +670,7 @@ static pid_t start_xserver(char *const default_vt) {
 
   {//check perms of initial socket (root:root) no hijacking!
     //perm checks
-    if (!check_operms(socketdirFd, socket, 's', "---rw#rw#r##", 0, 0)) {//0777
+    if (!check_perms(socketdirFd, -1, socket, 's', 1, "---rw#rw#r##", 0, 0)) {//0777
       writelog("Incorrect xserver socket permissions");
       goto cleanup;
     }
@@ -962,7 +963,11 @@ static bool build_and_test_path(const char *const template, const char *const fi
     return false;
   } else {
     //perm checks
-    if (!check_operms(-1,filepath,filetype,perm,0,0)) {
+    short hardlinks=1;
+    if (filetype=='d') {
+      hardlinks=-1;//disable test for dirs
+    }
+    if (!check_perms(-1,-1,filepath,filetype,hardlinks,perm,0,0)) {
       writelog(permMsg);
       _exit(EXIT_FAILURE);
     }
@@ -1933,7 +1938,7 @@ static bool check_parents_(const char *const permMsg, const char *const perm, ch
   //if (strcmp(cdir,dircp)!=0) {//no baja mas de /
   if (strcmp(cdir,"/")!=0) {//no baja mas de /
     //free(dircp);
-    const bool current_chk=check_operms(-1,cdir,'d',perm,0,0);
+    const bool current_chk=check_perms(-1,-1,cdir,'d',-1,perm,0,0);
     //vwritelog("copy: %s: %s\n",cdir,current_chk==true?"true":"false");
     if (!current_chk) {
       vwritelog(permMsg,cdir);
@@ -2356,34 +2361,48 @@ static bool test_filetype(const mode_t modetype, const char type) {
 }
 
 /*
- * check_operms: check if file have perms specified
- *   file is filepath, strperms es "---rw-rw-r--" ver test_perms
+ * check_perms: check if file have perms specified
+ *   file is filepath, strperms es "---rw-rw-r--" see test_perms
+ *   dirFd, fileFd are active if >=0 in that order
+ *   type: filetype check active if != ' ' see test_filetype
+ *   nlinks: hardlinks check active if >0
  *   uid,gid checks active if >0
  *   man 7 inode, man fstat, man fstatat, man strmode
  */
-static bool check_operms(const int dirFd, const char* file, const char type, const char strperm[FPERMSZ], const short uid, const short gid) {
+static bool check_perms(const int dirFd, const int fileFd, const char* filepath, const char type, const short nlinks, const char strperm[FPERMSZ],
+			const short uid, const short gid) {
   const unsigned short sz=(unsigned short) strlen(strperm);
   if ( strlen(strperm) != FPERMSZ-1 ) {//check proper request
-    fprintf(stderr,"Invalid permissions, needed 12 chars, current %d for file %s\n",sz,file);
-    vwritelog("Invalid permissions, needed 12 chars, current %d for file %s\n",sz,file);
+    fprintf(stderr,"Invalid permissions, needed 12 chars, current %d for file %s\n",sz,filepath);
+    vwritelog("Invalid permissions, needed 12 chars, current %d for file %s\n",sz,filepath);
     return false;
   }
   struct stat buf;
-  if (dirFd==-1) {
-    if (stat(file,&buf)<0){
-      fprintf(stderr,"Could not read file %s: %m\n",file);
-      vwritelog("Could not read file %s: %m",file);
+  if (dirFd>=0) {//use dirFd if supplied
+    if (fstatat(dirFd,filepath,&buf,AT_SYMLINK_NOFOLLOW)<0) {//good in sticky dirs or files we cant get a fd
+      fprintf(stderr,"Could not read file %s: %m\n",filepath);
+      vwritelog("Could not read file %s: %m",filepath);
+      return false;
+    }
+  } else if (fileFd>=0) {//use fileFd if supplied
+    if (fstat(fileFd,&buf)<0) {
+      fprintf(stderr,"Could not read file %s: %m\n",filepath);
+      vwritelog("Could not read file %s: %m",filepath);
       return false;
     }
   } else {
-    if (fstatat(dirFd,file,&buf,AT_SYMLINK_NOFOLLOW)<0){
-      fprintf(stderr,"Could not read file %s: %m\n",file);
-      vwritelog("Could not read file %s: %m",file);
+    if (stat(filepath,&buf)<0) {
+      fprintf(stderr,"Could not read file %s: %m\n",filepath);
+      vwritelog("Could not read file %s: %m",filepath);
       return false;
     }
   }
   //test file type
-  if (!test_filetype(buf.st_mode,type))  {
+  if ( (type!=' ') && (!test_filetype(buf.st_mode,type)) )  {
+    return false;
+  }
+  //test number of hardlinks
+  if ( (nlinks > 0) && (buf.st_nlink > (nlink_t) nlinks) ) {//for directories, is a count of direct subfolders
     return false;
   }
   //vwritelog("Octal perms # %jo #",(uintmax_t) buf.st_mode);//da 100664 no exactamente octal
@@ -2392,7 +2411,7 @@ static bool check_operms(const int dirFd, const char* file, const char type, con
   //char test[FPERMSZ]="---rwxr-x---";//750
   //char test[FPERMSZ]="---r--r--r--";//444
   //char test[FPERMSZ]="---r##r##r--";//>=4>=44
-  //vwritelog("file %s, perm %o, test %s, result %s ",file,(buf.st_mode & 0000777),test,(test_perms(buf.st_mode,test)?"true":"false"));
+  //vwritelog("file %s, perm %o, test %s, result %s ",filepath,(buf.st_mode & 0000777),test,(test_perms(buf.st_mode,test)?"true":"false"));
   //vwritelog("test grp write %s",(buf.st_mode & S_IWGRP)?"true":"false");//ok
   //if ((buf.st_mode & 0000007) != operms ) {//have more octal perm than allowed
   if (!test_perms(buf.st_mode,strperm)) {
@@ -2403,25 +2422,25 @@ static bool check_operms(const int dirFd, const char* file, const char type, con
       writelog("Error in perm_str_to_chmod_cmd");
       return false;
     }
-    fprintf(stderr,"Insecure file %s. Try running 'chmod %s %s'\n",file,strchmod,file);
-    vwritelog("Insecure file %s. Try running 'chmod %s %s'",file,strchmod,file);
+    fprintf(stderr,"Insecure file %s. Try running 'chmod %s %s'\n",filepath,strchmod,filepath);
+    vwritelog("Insecure file %s. Try running 'chmod %s %s'",filepath,strchmod,filepath);
     /*
     char chmodperm[4]="   ";
     perm_octal_to_str((7-operms),chmodperm);
     //fprintf(stderr,"mode: %d\n",buf.st_mode & 0000007); //select less significant bit (other)
-    fprintf(stderr,"Insecure file %s. Try running 'chmod o-%s %s'\n",file,chmodperm,file);
-    vwritelog("Insecure file %s. Try running 'chmod o-%s %s'\n",file,chmodperm,file);
+    fprintf(stderr,"Insecure file %s. Try running 'chmod o-%s %s'\n",filepath,chmodperm,filepath);
+    vwritelog("Insecure file %s. Try running 'chmod o-%s %s'\n",filepath,chmodperm,filepath);
     */
     return false;
   }
   if ((uid >= 0) && ( buf.st_uid!= (uid_t) uid )) {
-    fprintf(stderr,"Insecure owner for file %s (%d). Try running 'chown %d %s'\n",file,buf.st_uid,uid,file);
-    vwritelog("Insecure owner for file %s (%d). Try running 'chown %d %s'",file,buf.st_uid,uid,file);
+    fprintf(stderr,"Insecure owner for file %s (%d). Try running 'chown %d %s'\n",filepath,buf.st_uid,uid,filepath);
+    vwritelog("Insecure owner for file %s (%d). Try running 'chown %d %s'",filepath,buf.st_uid,uid,filepath);
     return false;
   }
   if ((gid >= 0) && ( buf.st_gid!= (gid_t) gid )) {
-    fprintf(stderr,"Insecure group for file %s (%d). Try running 'chgrp %d %s'\n",file,buf.st_gid,gid,file);
-    vwritelog("Insecure group for file %s (%d). Try running 'chgrp %d %s'",file,buf.st_gid,gid,file);
+    fprintf(stderr,"Insecure group for file %s (%d). Try running 'chgrp %d %s'\n",filepath,buf.st_gid,gid,filepath);
+    vwritelog("Insecure group for file %s (%d). Try running 'chgrp %d %s'",filepath,buf.st_gid,gid,filepath);
     return false;
   }
   return true;
@@ -2489,8 +2508,8 @@ static bool set_utmp(char name[FIELDSZ], pid_t child_sid, const char* ttyNumber)
 
   //const gid_t utmpgroup=UTMP_GROUP;
   //previous perms checks
-  if ( ( hasUtmp && ( !check_operms(-1,utmp_path, 'r', "---rw-rw-r--",0,utmpgroup) || !check_parents(NULL,NULL,utmp_path) ) ) ||
-       ( hasWtmp && ( !check_operms(-1,wtmp_path, 'r', "---rw-rw-r--",0,utmpgroup) || !check_parents(NULL,NULL,wtmp_path) ) ) ) {
+  if ( ( hasUtmp && ( !check_perms(-1,-1,utmp_path, 'r', 1, "---rw-rw-r--",0,utmpgroup) || !check_parents(NULL,NULL,utmp_path) ) ) ||
+       ( hasWtmp && ( !check_perms(-1,-1,wtmp_path, 'r', 1, "---rw-rw-r--",0,utmpgroup) || !check_parents(NULL,NULL,wtmp_path) ) ) ) {
     fprintf(stderr,"utmp/wtmp file integrity must be keep (see: man 5 utmp)\n");
     sleep(10);
     return false;
@@ -2613,7 +2632,7 @@ static int auth_user(struct pamdata *const pampst) {
       */
     }
     //denegate if user.home is o+rwx
-    if (!check_operms(-1,user.home,'d',"---rwx###---",user.uid,user.gid)) {
+    if (!check_perms(-1,-1,user.home,'d',-1,"---rwx###---",user.uid,user.gid)) {
       //fprintf(stderr,"Insecure user homedir, magic cookie could be accesible to others. Try running 'chmod o-rwx %s'\n",user.home);
       fprintf(stderr,"Insecure user homedir, magic cookie could be accesible to others. Try fixing permissions of %s\n",user.home);
       sleep(10);
@@ -2873,7 +2892,7 @@ int main(int argc,char *argv[]) {
       exit(EXIT_FAILURE);
     }
     //check rootfs perms
-    if (!check_operms(-1,"/", 'd', "---rwxr#xr-x",0,0)) {
+    if (!check_perms(-1,-1,"/", 'd', -1, "---rwxr#xr-x",0,0)) {
       writelog("Invalid rootfs perms. Must be root:root owned and 'other' no writeable");
       exit(EXIT_FAILURE);
     }
