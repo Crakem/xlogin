@@ -624,6 +624,7 @@ ac_includes_default="\
 ac_subst_vars='am__EXEEXT_FALSE
 am__EXEEXT_TRUE
 LTLIBOBJS
+SYSLOG
 LIBOBJS
 EGREP
 GREP
@@ -719,6 +720,7 @@ enable_option_checking
 enable_silent_rules
 enable_dependency_tracking
 with_pam
+with_syslog
 '
       ac_precious_vars='build_alias
 host_alias
@@ -1366,6 +1368,7 @@ Optional Packages:
   --with-PACKAGE[=ARG]    use PACKAGE [ARG=yes]
   --without-PACKAGE       do not use PACKAGE (same as --with-PACKAGE=no)
   --without-pam           disable support for pam
+  --without-syslog        disable support for syslog
 
 Some influential environment variables:
   CC          C compiler command
@@ -4889,6 +4892,123 @@ _ACEOF
 fi
 done
 
+
+# Check for system services
+
+# Check whether --with-syslog was given.
+if test "${with_syslog+set}" = set; then :
+  withval=$with_syslog;
+else
+
+		for ac_prog in syslog rsyslog syslog-ng
+do
+  # Extract the first word of "$ac_prog", so it can be a program name with args.
+set dummy $ac_prog; ac_word=$2
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
+$as_echo_n "checking for $ac_word... " >&6; }
+if ${ac_cv_prog_SYSLOG+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  if test -n "$SYSLOG"; then
+  ac_cv_prog_SYSLOG="$SYSLOG" # Let the user override the test.
+else
+as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
+for as_dir in /usr/sbin/$PATH_SEPARATOR/sbin$PATH_SEPARATOR$PATH
+do
+  IFS=$as_save_IFS
+  test -z "$as_dir" && as_dir=.
+    for ac_exec_ext in '' $ac_executable_extensions; do
+  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
+    ac_cv_prog_SYSLOG="$ac_prog"
+    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
+    break 2
+  fi
+done
+  done
+IFS=$as_save_IFS
+
+fi
+fi
+SYSLOG=$ac_cv_prog_SYSLOG
+if test -n "$SYSLOG"; then
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $SYSLOG" >&5
+$as_echo "$SYSLOG" >&6; }
+else
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+$as_echo "no" >&6; }
+fi
+
+
+  test -n "$SYSLOG" && break
+done
+test -n "$SYSLOG" || SYSLOG="none"
+
+		if test "x$SYSLOG" != xnone; then :
+
+$as_echo "#define USE_SYSLOG 1" >>confdefs.h
+
+fi
+
+fi
+
+
+          if test "x$with_syslog" == xyes; then :
+
+$as_echo "#define USE_SYSLOG 1" >>confdefs.h
+
+		for ac_prog in syslog rsyslog syslog-ng
+do
+  # Extract the first word of "$ac_prog", so it can be a program name with args.
+set dummy $ac_prog; ac_word=$2
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
+$as_echo_n "checking for $ac_word... " >&6; }
+if ${ac_cv_prog_SYSLOG+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  if test -n "$SYSLOG"; then
+  ac_cv_prog_SYSLOG="$SYSLOG" # Let the user override the test.
+else
+as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
+for as_dir in /usr/sbin/$PATH_SEPARATOR/sbin$PATH_SEPARATOR$PATH
+do
+  IFS=$as_save_IFS
+  test -z "$as_dir" && as_dir=.
+    for ac_exec_ext in '' $ac_executable_extensions; do
+  if as_fn_executable_p "$as_dir/$ac_word$ac_exec_ext"; then
+    ac_cv_prog_SYSLOG="$ac_prog"
+    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
+    break 2
+  fi
+done
+  done
+IFS=$as_save_IFS
+
+fi
+fi
+SYSLOG=$ac_cv_prog_SYSLOG
+if test -n "$SYSLOG"; then
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $SYSLOG" >&5
+$as_echo "$SYSLOG" >&6; }
+else
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+$as_echo "no" >&6; }
+fi
+
+
+  test -n "$SYSLOG" && break
+done
+test -n "$SYSLOG" || SYSLOG="none"
+
+		if test "x$SYSLOG" != xnone; then :
+
+else
+
+				{ $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: syslog support requested but cannot find binary" >&5
+$as_echo "$as_me: WARNING: syslog support requested but cannot find binary" >&2;}
+
+fi
+
+fi
 
 #AC_CONFIG_FILES([Makefile])
 ac_config_files="$ac_config_files Makefile src/Makefile"

@@ -139,6 +139,9 @@
 /* Define if you have libpam */
 #undef USE_PAM
 
+/* Define if you have syslog */
+#undef USE_SYSLOG
+
 /* Define default utmp group name as 'utmp' */
 #undef UTMP_GROUP_NAME
 
