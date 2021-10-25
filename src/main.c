@@ -3134,8 +3134,10 @@ int main(int argc,char *argv[]) {
 
   //kill child_pid because its child_sid
   if (killpg(child_pid, SIGINT)!=0) {//non fatal
-    vwritelog("Failed to kill child process group %d: %m",child_pid);
-    //exit(EXIT_FAILURE);
+    if (errno!=ESRCH) {//no process found, good, no childs to kill
+      vwritelog("Failed to kill child process group %d: %m",child_pid);
+      //exit(EXIT_FAILURE);
+    }
   }
 
   //wait subchild process group
