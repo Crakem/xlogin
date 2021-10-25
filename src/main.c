@@ -19,7 +19,9 @@
 
 #ifdef HAVE_CONFIG_H
 #include <config.h>
-#else
+#endif
+
+#ifndef USE_SYSLOG
 #include "defconfig.h"
 #endif
 

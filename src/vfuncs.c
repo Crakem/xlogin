@@ -19,8 +19,6 @@
 
 #ifdef HAVE_CONFIG_H
 #include <config.h>
-#else
-#include "defconfig.h"
 #endif
 
 #include <stdarg.h>
@@ -29,6 +27,7 @@
 #include <stdio.h> //vsnprintf
 
 #ifndef USE_SYSLOG
+#include "defconfig.h"
 #include <sys/types.h>//open
 #include <sys/stat.h>
 #include <fcntl.h>
