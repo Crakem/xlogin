@@ -2873,6 +2873,9 @@ static int auth_user(struct pamdata *const pampst) {
 
 int main(int argc,char *argv[]) {
   writelog("xlogin v" PACKAGE_VERSION " starting");
+
+  bool failed=false;//error track and cleanup tasks
+
   /*
   for (int i=0;i<argc;i++){
     fprintf(stdout,"argv[%d]: %s\n",i,argv[i]);
@@ -2894,28 +2897,28 @@ int main(int argc,char *argv[]) {
 #ifndef USE_PAM
   if (clearenv()!=0) {
     writelog("Failed to clear environment. Maybe you have changed it in non-standard way?");
-    exit(EXIT_FAILURE);
+    main_failure(quit);
   }//systemd do 'init' work and set some env vars
 #endif
   {//sane checks
     if ( argc<1 ) {
       writelog("Al least username must be provided in command line of xlogin");
-      exit(EXIT_FAILURE);
+      main_failure(quit);
     }
     if (argc>3) {
       writelog("Usage: xlogin <username> or xlogin -- <username>");
-      exit(EXIT_FAILURE);
+      main_failure(quit);
     }
     //check rootfs perms
     if (!check_perms(-1,-1,"/", 'd', -1, "---rwxr#xr-x",0,0)) {
       writelog("Invalid rootfs perms. Must be root:root owned and 'other' no writeable");
-      exit(EXIT_FAILURE);
+      main_failure(quit);
     }
     //check no normal user running xlogin
     if ( getuid() != ((uid_t) 0) ) {
       fprintf(stderr,"Run xlogin only as root\n");
       writelog("Run xlogin only as root");
-      exit(EXIT_FAILURE);
+      main_failure(quit);
     }
   }
   {//get username from getty, trimming to FIELDSZ
@@ -2923,15 +2926,13 @@ int main(int argc,char *argv[]) {
     //this is the only on field from user struct which is filled out of auth_user
     if (!snprintf_managed(user.name,FIELDSZ,"%s",getty_username)){//global
       writelog("Failed to set username field");
-      exit(EXIT_FAILURE);
+      main_failure(quit);
     }
   }
 
-  bool failed=false;//error track and cleanup tasks
-
 #ifdef USE_PAM
   if (!exists_pamconfig()) {//check config file exists
-    exit(EXIT_FAILURE);
+    main_failure(quit);
   }
   struct pam_conv conv = {
     misc_conv,
@@ -2941,7 +2942,7 @@ int main(int argc,char *argv[]) {
   {//user authentication and pam setup
     //set timeout for pam
     if (!set_pam_timeout()) {
-      exit(EXIT_FAILURE);
+      main_failure(quit);
     }
     pam_handle_t *pamh=NULL;
     pamst.result=pam_start("xlogin", user.name, &conv, &pamh);
@@ -2975,7 +2976,6 @@ int main(int argc,char *argv[]) {
       } else {
 	main_success(exit);
       }
-      //exit(EXIT_FAILURE);
     }
   }
 #endif
@@ -3009,7 +3009,6 @@ int main(int argc,char *argv[]) {
   if (ttydev==NULL) {
     ewritelog("Failed to get current ttydevice");
     main_failure(exit);
-    //exit(EXIT_FAILURE);
   }
 
   //translate ttydev to vtdev (just before closing FDs)
@@ -3019,7 +3018,6 @@ int main(int argc,char *argv[]) {
   if (!snprintf_managed(default_vt,sizeof(default_vt),"vt%s",ttyNumber)) {
     writelog("Error getting default_vt string");
     main_failure(exit);
-    //exit(EXIT_FAILURE);
   }
 
   {//check of xlogin system dir
@@ -3027,7 +3025,6 @@ int main(int argc,char *argv[]) {
     if (access(system_xlogin_dir,F_OK)!=0) {
       ewritelog("Directory required, " XLOGINDIR ", missing or other error");
       main_failure(exit);
-      //exit(EXIT_FAILURE);
     }
   }
 
@@ -3035,7 +3032,6 @@ int main(int argc,char *argv[]) {
     if (!is_proc_secure()) {
       writelog("/proc security too weak");
       main_failure(exit);
-      //exit(EXIT_FAILURE);
     }
   }
 
@@ -3045,13 +3041,11 @@ int main(int argc,char *argv[]) {
     if (psid<0) {
       ewritelog("Failed to get process sid");
       main_failure(exit);
-      //exit(EXIT_FAILURE);
     }
     //write utmp login record //BUG puede rodar con menos permisos!! (root:utmp)
     if (!set_utmp(user.name,psid,ttyNumber)) {
       writelog("Error filling utmp struct");
       main_failure(exit);
-      //exit(EXIT_FAILURE);
     }
   }
   //importante
@@ -3069,17 +3063,14 @@ int main(int argc,char *argv[]) {
       const char msg[]="Error opening " DEV_NULL " readonly";
       ewritelog(msg);
       main_failure(exit);
-      //exit(EXIT_FAILURE);
     }
     if (dup2(devnullFdRd,STDIN_FILENO)<0) {
       ewritelog("Failed closing stdin");
       main_failure(exit);
-      //exit(EXIT_FAILURE);
     }
     if (close(devnullFdRd)==-1) {
       ewritelog("Failed to close redirected file desciptor");
       main_failure(exit);
-      //exit(EXIT_FAILURE);
     }
   }
 
@@ -3089,21 +3080,18 @@ int main(int argc,char *argv[]) {
     //fprintf(stderr,"Failed to start xserver\n");
     writelog("Failed to start xserver");
     main_failure(exit);
-    //exit(EXIT_FAILURE);
   }
 
   //man 2 prctl
   if (prctl(PR_SET_CHILD_SUBREAPER,1)!=0) {//be xlogin child subreaper
     ewritelog("Failed setting main thread as child rubreaper");
     main_failure(cleanup);
-    //exit(EXIT_FAILURE);
   }
   //start session
   const pid_t child_pid=fork();
   if ( child_pid < 0) {
     writelog("Failed to fork main process");
     main_failure(cleanup);
-    //exit(EXIT_FAILURE);
   } else if (child_pid == 0) {//child
     //create a session
     if (setsid()==((pid_t) -1)) { ewritelog("Failed to create process group for child session"); };
@@ -3129,7 +3117,6 @@ int main(int argc,char *argv[]) {
   if (!waitpid_with_log(child_pid)) {
     ewritelog("Failed waiting child (session) process");
     main_failure(cleanup);
-    //exit(EXIT_FAILURE);
   }
 
   //vwritelog("Killing pg: %d",child_pid);
@@ -3138,7 +3125,7 @@ int main(int argc,char *argv[]) {
   if (killpg(child_pid, SIGINT)!=0) {//non fatal
     if (errno!=ESRCH) {//no process found, good, no childs to kill
       vwritelog("Failed to kill child process group %d: %m",child_pid);
-      //exit(EXIT_FAILURE);
+      //main_failure(cleanup);
     }
   }
 
@@ -3153,8 +3140,7 @@ cleanup:
   if (kill(xserver_pid, SIGINT)!=0) {//BUG: reset and shutdown options??
     //fprintf(stderr,"Failed to kill xserver (%d)\n",errno);
     ewritelog("Failed to kill xserver");
-    //main_failure(exit);
-    exit(EXIT_FAILURE);
+    main_failure(exit);
     //} else {
     //writelog("Xorg killed successfully");
   }
@@ -3252,6 +3238,7 @@ cleanup:
     */
   }
 #endif
+ quit:
   if (failed) {
     writelog("xlogin ended with failure");
     exit(EXIT_FAILURE);
