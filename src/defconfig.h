@@ -17,6 +17,10 @@
   along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+#ifndef _PATH_TMP
+#include <paths.h>
+#endif
+
 #ifndef LOGFILE_PATH
-#define LOGFILE_PATH "/tmp/xlogin.log"
+#define LOGFILE_PATH _PATH_TMP "xlogin.log"
 #endif
