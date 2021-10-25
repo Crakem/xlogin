@@ -39,13 +39,12 @@
 #include <stdlib.h> //free
 #include <string.h> //memcpy
 
-//#include "getpass.h"
 char* getpass2 (const char *const prompt);
 
 char* getpass2 (const char *const prompt) {
   FILE* fp;
   struct termios to, t; //to: initial terminal attrs
-  char *buf;
+  char *buf=NULL;
   size_t bufsize=0;
   ssize_t nread;
 
@@ -68,7 +67,6 @@ char* getpass2 (const char *const prompt) {
   /* Save the old one. */
   memcpy(&to,&t,sizeof(to));
   //to = t;//BUG, works??
-  /* Tricky, tricky. */
   t.c_lflag &= ~(ECHO|ISIG);
   if (tcsetattr(fileno(fp), TCSAFLUSH, &t) < 0) {
     fprintf(stderr,"Failed to set terminal attributes: %m");
@@ -101,7 +99,7 @@ char* getpass2 (const char *const prompt) {
   }
   
   if (buf[nread - 1] != '\n') {//char mandatory or password was too large
-    fprintf(stderr,"Error password reading truncated");
+    fprintf(stderr,"Error, password reading truncated");
     return NULL;
   } else {
     /* Remove the newline.  */
@@ -111,7 +109,7 @@ char* getpass2 (const char *const prompt) {
   }
 
   /* Restore the original setting.  */
-  if (tcsetattr (fileno (fp), TCSAFLUSH, &to)<0) {
+  if (tcsetattr(fileno (fp), TCSAFLUSH, &to)<0) {
     fprintf(stderr,"Failed to restore terminal attributes: %m");
     return NULL;
   }

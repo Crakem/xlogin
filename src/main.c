@@ -1912,8 +1912,8 @@ static void start_session(struct pamdata *const pampst) {
  * strzero - fill var with zeros for hiding values
  */
 static void strzero(char *const  str) {//BUG check blanked true!
-  //explicit_bzero(str,strlen(str));
-  memset(str,0,strlen(str));
+  explicit_bzero(str,strlen(str));
+  //memset(str,0,strlen(str));
 }
 
 /*
@@ -2752,7 +2752,7 @@ static int auth_user(struct pamdata *const pampst) {
 #else //!USE_PAM
   {//validate password
     alarm(LOGIN_TIMEOUT);
-    register char* clear = getpass2("Password: ");
+    char* clear = getpass2("Password: ");//do no apply register
     alarm(0);//BUG write timeout msg to end function smoothly, now it gets killed
     if (NULL == clear) {
       fprintf(stderr,"Couldn't get typed password: %s",strerror(errno));
