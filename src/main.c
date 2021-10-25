@@ -574,6 +574,7 @@ static bool setup_xauth(char authfile[AUTHFILE_SZ]) {
  * sigIgnore - dummy for catch SIGUSR1
  */
 static void sigIgnore(const int sig) {
+  (void) sig;
   //writelog("xlogin signaled");
   return;
 }
@@ -582,9 +583,10 @@ static void sigIgnore(const int sig) {
  * sigAbort - handler para fallar si llega el timeout
  */
 static void sigAbort(const int sig) {
-    writelog("Timeout waiting xserver ready status");
-    exit(EXIT_FAILURE);
-  }
+  (void) sig;
+  writelog("Timeout waiting xserver ready status");
+  exit(EXIT_FAILURE);
+}
 
 /*
  * start_xserver - start X server doing xinit work as root user
