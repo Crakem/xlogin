@@ -35,6 +35,12 @@
 #define HIDEPID_INVISIBLE "hidepid=2"
 #endif
 
+#include <features.h>
+
+#if __GLIBC_PREREQ(2,32)
+#define SECURE_FCHMODAT 1
+#endif
+
 #ifndef USE_PAM
 #include <sys/types.h>
 #include <signal.h> //kill,signal,(killpg)
@@ -685,11 +691,18 @@ static pid_t start_xserver(char *const default_vt) {
   //  umask(S_IRWXO);
   //if (chmod(socket,S_IRWXU | S_IRWXG)!=0) {
   //if (fchmod(socketFd, S_IRWXU | S_IRWXG)!=0) {
-  if (fchmodat(socketdirFd, socket, S_IRWXU | S_IRWXG, AT_SYMLINK_NOFOLLOW)!=0) {
     //fprintf(stderr,"Failed to chmod xserver socket\n");
+#ifdef SECURE_FCHMODAT
+  if (fchmodat(socketdirFd, socket, S_IRWXU | S_IRWXG, AT_SYMLINK_NOFOLLOW)!=0) {
     writelog("Failed to chmod xserver socket");
     goto cleanup;
   }
+#else
+  if (fchmodat(socketdirFd, socket, S_IRWXU | S_IRWXG, 0)!=0) {
+    writelog("Failed to chmod xserver socket");
+    goto cleanup;
+  }
+#endif
   //chgrp ${USER} ${SOCKET}
   //if (lchown(socket,-1,user.gid)!=0) {//-1 keeps uid (==0 hopes)
   //if (fchown(socketFd,-1,user.gid)!=0) {//-1 keeps uid (==0 hopes)
