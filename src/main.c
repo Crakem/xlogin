@@ -214,26 +214,27 @@ static bool build_and_test_path(const char *const template, const char *const fi
 				char filepath[MAX_PATH]);
 static bool exists_xloginrc(char xloginrc[MAX_PATH]);
 static bool exists_proc(char procdir[MAX_PATH]);
-static bool valid_not_commented_or_null_line(const char sessionbin[MAX_PATH]);
-static bool valid_yama_line(const char str[MAX_PATH]);
-static bool valid_proc_line(const char str[MAX_PATH]);
-static bool read_valid_line_from_file(FILE* *const fp_ptr, const char *const filename, bool (*validate)(const char *const), /*out*/ char line[MAX_PATH]);
-static bool action_proc_line(bool *const success, const bool hasShell, char line[MAX_PATH]);
-static bool action_yama_line(bool *const success, const bool hasShell, char line[MAX_PATH]);
-static bool action_first_line(bool *const success, const bool hasShell, char sessionbin[MAX_PATH]);
+static bool valid_not_commented_or_null_line(const char sessionbin[MAX_PATH], void** argv);
+static bool valid_yama_line(const char str[MAX_PATH], void** argv);
+static bool valid_proc_line(const char str[MAX_PATH], void** argv);
+static bool read_valid_line_from_file(FILE* *const fp_ptr, const char *const filename, bool (*validate)(const char *const, void**),
+					/*out*/ char line[MAX_PATH], void** argv);
+static bool action_proc_line(bool *const success, const bool hasShell, char line[MAX_PATH], void** argv);
+static bool action_yama_line(bool *const success, const bool hasShell, char line[MAX_PATH], void** argv);
+static bool action_first_line(bool *const success, const bool hasShell, char sessionbin[MAX_PATH], void** argv);
 static bool validate_fstype(const char *const path, __fsword_t fstype);
 static bool is_proc_secure(void);
 static void fork_prog_(char *const prog[], pid_t* child_pid);
 static void fork_prog(const bool hasShell, char sessionbin[MAX_PATH], pid_t* child_pid);
 static bool cmd2buf(const bool eof, char sessionbintmp[MAX_PATH], char sessionbin[MAX_PATH]);
-static bool action_login_line(bool *const success, const bool hasShell, char sessionbin[MAX_PATH]);
-static bool action_logout_line(bool *const success, const bool hasShell, char sessionbin[MAX_PATH]);
-static bool got_valid_line(const bool hasShell, const char sessionrc[MAX_PATH], bool (*validate)(const char *const),
-			   bool (*action)(bool *const, const bool, char[MAX_PATH]), char sessionbin[MAX_PATH]);
+static bool action_login_line(bool *const success, const bool hasShell, char sessionbin[MAX_PATH], void** argv);
+static bool action_logout_line(bool *const success, const bool hasShell, char sessionbin[MAX_PATH], void** argv);
+static bool got_valid_line(const bool hasShell, const char sessionrc[MAX_PATH], bool (*validate)(const char *const, void**),
+			   bool (*action)(bool *const, const bool, char[MAX_PATH], void**), char sessionbin[MAX_PATH]);
 static bool include(const char* *const patterns,const char *const str);
 #ifndef USE_PAM
-static bool valid_env_line(const char line[MAX_PATH]);
-static bool action_env_line(bool *const success, const bool hasShell, char line[MAX_PATH]);
+static bool valid_env_line(const char line[MAX_PATH], void** argv);
+static bool action_env_line(bool *const success, const bool hasShell, char line[MAX_PATH], void** argv);
 static bool load_env(void);
 #else
 static bool exists_pamconfig(void);
@@ -1000,7 +1001,8 @@ static bool build_and_test_path(const char *const template, const char *const fi
 /*
  * valid_not_commented_or_null: validate line from xloginrc/sessionrc. Is valid if neither commented nor empty
  */
-static bool valid_not_commented_or_null_line(const char sessionbin[MAX_PATH]) {
+static bool valid_not_commented_or_null_line(const char sessionbin[MAX_PATH], void** argv) {
+  (void) argv;
   const char str=sessionbin[0];
   if ( (str=='#') || (str=='\0') || (str=='\r') ) {
     return false;
@@ -1049,7 +1051,8 @@ static bool cmd2buf(const bool eof, char sessionbintmp[MAX_PATH], char sessionbi
  * read_valid_line_from_file: read line neither commented nor empty
  *  fp_ptr is a stream pointer (FILE**), filename is for errors references to file opened in stream and validate is a function ptr which validate data gathered
  */
-static bool read_valid_line_from_file(FILE* *const fp_ptr, const char *const filename, bool (*validate)(const char *const), char line[MAX_PATH]) {
+static bool read_valid_line_from_file(FILE* *const fp_ptr, const char *const filename, bool (*validate)(const char *const, void**),
+				      char line[MAX_PATH], void** argv) {
   char linetmp[MAX_PATH];//dont use maxpath here! or will trigger dynamic array
   const short maxpath=MAX_PATH;
   memset(linetmp,0,maxpath);
@@ -1083,14 +1086,15 @@ static bool read_valid_line_from_file(FILE* *const fp_ptr, const char *const fil
       return false;
     }
     //writelog(line);
-  } while( !( (*validate) (line) ) );//roll again if not validated
+  } while( !( (*validate) (line,argv) ) );//roll again if not validated
   return true;
 }
 
 /*
  * valid_yama_line
  */
-static bool valid_yama_line(const char str[MAX_PATH]) {
+static bool valid_yama_line(const char str[MAX_PATH], void** argv) {
+  (void) argv;
   if (strlen(str)!=1) {
     return false;
   }
@@ -1100,11 +1104,11 @@ static bool valid_yama_line(const char str[MAX_PATH]) {
 /*
  * valid_proc_line: filter proc line
  */
-static bool valid_proc_line(const char str[MAX_PATH]) {
+static bool valid_proc_line(const char str[MAX_PATH], void** argv) {
   char **argvline=NULL;
   bool result=false;
   //duplicar el array
-  char *const cpstr=strdup(str);
+  char* cpstr=strdup(str);
   if ( cpstr == NULL ){
     ewritelog("Failed to strdup array for getting split while validating proc line");
     exit(EXIT_FAILURE);
@@ -1117,8 +1121,15 @@ static bool valid_proc_line(const char str[MAX_PATH]) {
   if (strcmp("/proc",argvline[1])==0) {
     result=true;
   }
-  free(argvline);argvline=NULL;
-  free(cpstr);
+  char*** argvtmp=(char***) malloc((3*sizeof(char**)));
+  if (argvtmp==NULL){
+    ewritelog("Failed malloc while validating proc line");
+    exit(EXIT_FAILURE);
+  }
+  argvtmp[0]=&cpstr;
+  argvtmp[1]=argvline;
+  argvtmp[2]=NULL;
+  *argv=argvtmp;
   return result;
 }
 
@@ -1126,20 +1137,22 @@ static bool valid_proc_line(const char str[MAX_PATH]) {
  * action_proc_line
  * profile: run action for first found or fail
  */
-static bool action_proc_line(bool *const success, const bool hasShell, char line[MAX_PATH]) {
+static bool action_proc_line(bool *const success, const bool hasShell, char line[MAX_PATH], void** argv) {
+  (void) hasShell;
+  (void) line;
   bool eof=true;//get out of while and proceed to close file
   if (!(*success)) {//eof
     writelog("Error getting valid /proc line from file " PROC_MOUNTS);
   } else {
-    //work duplicated with valid_proc_line for proc line only
-    char **argvline=NULL;
-    if (!splitstr(" \n", line, &argvline)) {//destroys line array!
-      writelog("Error with splitstr while splitting");
-      return false;
-    }
+    char*** argvtmp=(char***) (*argv);
+    char* cpstr=*argvtmp[0];
+    char **argvline=argvtmp[1];
     //proc /proc proc rw,nosuid,nodev,noexec,relatime,hidepid=invisible 0 0
     const bool secure=strstr(argvline[3],HIDEPID_INVISIBLE)==NULL? false:true;
+    free(cpstr);cpstr=NULL;
     free(argvline);argvline=NULL;
+    free(argvtmp);argvtmp=NULL;
+    *argv=NULL;
     if (!secure) {
       writelog("/proc must be mounted with hidepid=2 (invisible) for protecting magic cookie from stealing");
       return false;
@@ -1152,7 +1165,9 @@ static bool action_proc_line(bool *const success, const bool hasShell, char line
  * action_yama_line
  * profile: run action for first found or fail
  */
-static bool action_yama_line(bool *const success, const bool hasShell, char line[MAX_PATH]) {
+static bool action_yama_line(bool *const success, const bool hasShell, char line[MAX_PATH], void** argv) {
+  (void) argv;
+  (void) hasShell;
   bool eof=true;//get out of while and proceed to close file
   if (!(*success)) {//eof
     writelog("Couln't find valid line in " PROC_YAMA);
@@ -1305,7 +1320,10 @@ static void fork_prog(const bool hasShell, char sessionbin[MAX_PATH], pid_t* chi
  * action_first_line
  * profile: run action for first found or fail
  */
-static bool action_first_line(bool *const success, const bool hasShell, char sessionbin[MAX_PATH]) {
+static bool action_first_line(bool *const success, const bool hasShell, char sessionbin[MAX_PATH], void** argv) {
+  (void) argv;
+  (void) hasShell;
+  (void) sessionbin;
   bool eof=true;//get out of while and proceed to close file
   if (!(*success)) {//eof
     writelog("Error getting valid line from file xloginrc");
@@ -1317,7 +1335,8 @@ static bool action_first_line(bool *const success, const bool hasShell, char ses
  * action_login_line: do login actions. Run cmds while success to exec line (starting with '*'), cmd returned in sessionbin
  * profile: run action for first found or fail
  */
-static bool action_login_line(bool *const success, const bool hasShell, char sessionbin[MAX_PATH]) {
+static bool action_login_line(bool *const success, const bool hasShell, char sessionbin[MAX_PATH], void** argv) {
+  (void) argv;
   bool eof=false;
   if (!(*success)) {//eof
     writelog("Error getting valid line from sessionrc file. Did you forgot adding '*' to last executed line?");
@@ -1336,7 +1355,8 @@ static bool action_login_line(bool *const success, const bool hasShell, char ses
  * action_logout_line: do login actions. Run cmds while success to end of file
  * profile: run actions for all found to end without failing
  */
-static bool action_logout_line(bool *const success, const bool hasShell, char sessionbin[MAX_PATH]) {
+static bool action_logout_line(bool *const success, const bool hasShell, char sessionbin[MAX_PATH], void** argv) {
+  (void) argv;
   bool eof=false;
   if (!(*success)) {//eof
     *success=true;//ok if we reach eof
@@ -1360,8 +1380,8 @@ static bool action_logout_line(bool *const success, const bool hasShell, char se
  * got_valid_line: read file sessionrc and store last valid line in sessionbin
  * valid lines choosed with 'validate' function, 'action' function could continue/finish after a successful find and change successful status with more test
  */
-static bool got_valid_line(const bool hasShell, const char sessionrc[MAX_PATH], bool (*validate)(const char *const),
-			   bool (*action)(bool *const, const bool, char[MAX_PATH]), char line[MAX_PATH]) {//BUG: set MAX_LINE to 'line'?
+static bool got_valid_line(const bool hasShell, const char sessionrc[MAX_PATH], bool (*validate)(const char *const, void**),
+			   bool (*action)(bool *const, const bool, char[MAX_PATH], void**), char line[MAX_PATH]) {//BUG: set MAX_LINE to 'line'?
   bool eof=false;
 /*
   if (signal(SIGCHLD,SIG_IGN)==SIG_ERR) {//no defuncts (works)
@@ -1378,13 +1398,14 @@ static bool got_valid_line(const bool hasShell, const char sessionrc[MAX_PATH], 
   bool success=false;
   //read line by line
   do {
+    void* ptr=NULL;
     //read valid line (neither commented nor empty)
-    success=read_valid_line_from_file(&fp,sessionrc,(*validate),line);
+    success=read_valid_line_from_file(&fp,sessionrc,(*validate),line,&ptr);
     if (fp==NULL) {
       vwritelog("Stream error reading '%s'",sessionrc);
       return false;
     }
-    eof=(*action)(&success,hasShell,line);
+    eof=(*action)(&success,hasShell,line,&ptr);
   } while (!eof);
 
   //close file
@@ -1412,23 +1433,41 @@ static bool include(const char* *const patterns,const char *const str) {
 /*
  * valid_env_line: validate line from /etc/environment. Is valid if neither commented nor empty and pairs NAME=VALUE
  */
-static bool valid_env_line(const char name[MAX_PATH]) {
-  {//cleck no comented or null starting line (came space free (ltrimmed, rtrimmed))
-    const char str=name[0];
+static bool valid_env_line(const char line[MAX_PATH], void** argv) {
+  {//check neither comented nor null starting line (came space free (ltrimmed, rtrimmed))
+    const char str=line[0];
     if ( (str=='#') || (str=='\0') || (str=='\r') ) {
       return false;
     }
   }
   //check is pair
   {
+    char* name=strdup(line);//needed because we change '=' with '\0'
+    if (name==NULL) {
+      ewritelog("Error duplicating string while reading enviroment file");
+      return false;
+    }
     char* value=strrchr(name,'=');//point to last '=' char
     if (value==NULL) {
       vwritelog("Invalid environment var assignation, missing equal char: '%s'",name);
       return false;//not a pair
     }
+    *value='\0';//overwrite '=' with NULL
     value++;//points to value //if envvar has only 'NAME=' this points to '\0'
     if (*value=='\0') {//dont import vars as 'NAME='
       return false;
+    }
+    //allocate mem for argv array
+    {
+      char** argvline=(char**) malloc((3*sizeof(char*)));
+      if (argvline==NULL){
+	ewritelog("Failed malloc while validating env line");
+	return false;
+      }
+      argvline[0]=name;
+      argvline[1]=value;
+      argvline[2]=NULL;
+      *argv=argvline;
     }
   }
   return true;
@@ -1438,38 +1477,19 @@ static bool valid_env_line(const char name[MAX_PATH]) {
  * action_env_line: parse and register env vars
  * profile: run actions for all found to end without failing
  */
-static bool action_env_line(bool *const success, const bool hasShell, char name[MAX_PATH]) {
+static bool action_env_line(bool *const success, const bool hasShell, char line[MAX_PATH], void** argv) {
+  (void) hasShell;
+  (void) line;
   bool eof=false;
   if (!(*success)) {//eof
     *success=true;//ok if we reach eof
     eof=true;//get out of while and proceed to close file if remains open
   } else {
-    //just checked is valid pair
-    /*
-    char* name=strdup(line);//needed because we change '=' with '\0'
-    if (name==NULL) {
-      ewritelog("Error duplicating string");
-      *success=false;
-      eof=true;
-      return eof;
-    }
-    */
-    char* value=strrchr(name,'=');//point to last '=' char
-    /*
-    if (value==NULL) {
-      vwritelog("Invalid environment var assignation, missing equal char: '%s'",line);
-      goto failed;//not a pair
-    }
-    */
-    *value='\0';//overwrite '=' with NULL
-    value++;//points to value //if envvar has only 'NAME=' this points to '\0'
-    /*
-    if (*value=='\0') {
-      goto cleanup;//empty pair; dont import vars as 'NAME='
-      //ignore and no fail
-    }
-    */
+    //just checked, is valid pair
     //excluir envvars que tienen LD* o "ROOTPATH*"
+    char** argvline=(char**) (*argv);
+    const char *const name=argvline[0];
+    const char *const value=argvline[1];
     const char* filter[]={"ROOTPATH","LD",NULL};
     if (!include(filter,name)) {
       //vwritelog("Env var accepted '%s=%s' (sz: %d)",name,value,strlen(name)); //BUG: al descomentar los vwrite, a veces casca (puede que setenv falle tb)
@@ -1482,7 +1502,9 @@ static bool action_env_line(bool *const success, const bool hasShell, char name[
       //vwritelog("Env var rejected '%s=%s' (sz: %d)",name,value,strlen(name));
     }
     //vwritelog("Setting envvar: '%s' = '%s'",name,value);
-    //free(name);
+    free(argvline[0]);//name
+    free(argvline);argvline=NULL;
+    *argv=NULL;
   }
   return eof;
 }
