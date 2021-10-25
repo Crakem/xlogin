@@ -1748,6 +1748,10 @@ static void start_session(struct pamdata *const pampst) {
       //session=(char*[2]){DEFAULT_SESSION,NULL};
       //session=defsession;
       session=(char**) malloc((2*sizeof(char*)));
+      if (session==NULL){
+	ewritelog("Failed malloc while setting up session");
+	_exit(EXIT_FAILURE);
+      }
       memset(session,0,2*sizeof(char*));
       session[0]=DEFAULT_SESSION;
     } else {//doesnt has default value because some rc exists
