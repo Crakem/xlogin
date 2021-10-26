@@ -1139,15 +1139,18 @@ static bool valid_proc_line(const char str[MAX_PATH], void** argv) {
   if (strcmp("/proc",argvline[1])==0) {
     result=true;
   }
-  char*** argvtmp=(char***) malloc((3*sizeof(char**)));
-  if (argvtmp==NULL){
+  struct procdata {//pairs with action_proc_line
+    char* stptr;
+    char** argv;
+  };
+  struct procdata* stproc=(struct procdata*) malloc(sizeof(struct procdata));
+  if (stproc==NULL){
     ewritelog("Failed malloc while validating proc line");
     exit(EXIT_FAILURE);
   }
-  argvtmp[0]=&cpstr;
-  argvtmp[1]=argvline;
-  argvtmp[2]=NULL;
-  *argv=argvtmp;
+  stproc->stptr=cpstr;
+  stproc->argv=argvline;
+  *argv=stproc;
   return result;
 }
 
@@ -1162,14 +1165,20 @@ static bool action_proc_line(bool *const success, const bool hasShell, char line
   if (!(*success)) {//eof
     writelog("Error getting valid /proc line from file " PROC_MOUNTS);
   } else {
-    char*** argvtmp=(char***) (*argv);
-    char* cpstr=*argvtmp[0];
-    char **argvline=argvtmp[1];
+    struct procdata {//pairs with valid_proc_line
+      char* stptr;
+      char** argv;
+    };
+    struct procdata* stproc=(struct procdata*) (*argv);
+    char* cpstr=stproc->stptr;
+    char **argvline=stproc->argv;
+    stproc->stptr=NULL;
+    stproc->argv=NULL;
     //proc /proc proc rw,nosuid,nodev,noexec,relatime,hidepid=invisible 0 0
     const bool secure=strstr(argvline[3],HIDEPID_INVISIBLE)==NULL? false:true;
     free(cpstr);cpstr=NULL;
     free(argvline);argvline=NULL;
-    free(argvtmp);argvtmp=NULL;
+    free(stproc);stproc=NULL;
     *argv=NULL;
     if (!secure) {
       writelog("/proc must be mounted with hidepid=2 (invisible) for protecting magic cookie from stealing");
