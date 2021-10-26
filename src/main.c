@@ -153,6 +153,8 @@
 #define ENV_FILE "/etc/environment.d/10-gentoo-env.conf"
 #endif
 
+#define PASS_PROMPT "XPassword: "
+
 //#define strzero(str) explicit_bzero(str,strlen(str))
 
 //store
@@ -2631,7 +2633,7 @@ static int auth_user(struct pamdata *const pampst) {
     sp=getpwnam(user.name);//BUG: duplicate struct with memcp?
     if (sp==NULL){//invalid user
       alarm(LOGIN_TIMEOUT);//kill process if timeout reaches (default action)
-      char* clear = getpass2 ("Password: ");
+      char* clear = getpass2(PASS_PROMPT);
       strzero(clear);
       free(clear);
       clear=NULL;
@@ -2684,7 +2686,7 @@ static int auth_user(struct pamdata *const pampst) {
       return 1;
       /*
       alarm(LOGIN_TIMEOUT);
-      getpass2 ("Password: ");
+      getpass2 (PASS_PROMPT);
       alarm(0);
       sleep(1);
       return false;
@@ -2830,7 +2832,7 @@ static int auth_user(struct pamdata *const pampst) {
 #else //!USE_PAM
   {//validate password
     alarm(LOGIN_TIMEOUT);
-    char* clear = getpass2("Password: ");//do no apply register
+    char* clear = getpass2(PASS_PROMPT);//do no apply register
     alarm(0);//BUG write timeout msg to end function smoothly, now it gets killed
     if (NULL == clear) {
       fprintf(stderr,"Couldn't get typed password: %s",strerror(errno));
