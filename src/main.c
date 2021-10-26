@@ -659,7 +659,7 @@ static pid_t start_xserver(char *const default_vt) {
   //for display :0 (ver opcion fd de Xorg)
   //const char socket[]="/tmp/.X11-unix/X0";
   //const char socket[]= _PATH_TMP ".X11-unix/X0";//BUG corregir si DISPLAY esta definida?
-  const char socket[]= XSOCKETDIR "X0";//BUG corregir si DISPLAY esta definida?
+  const char socket[]= "./" "X0";//BUG corregir si DISPLAY esta definida?
   const char socketdir[]= XSOCKETDIR;
   //while [ ! -e ${SOCKET} ];do sleep 1s;done
 
@@ -686,8 +686,9 @@ static pid_t start_xserver(char *const default_vt) {
       goto cleanup;
     }
     //check parents
-    if (!check_parents("Insecure parent: %s. Minimal requirements are root:root o+t","--xr#xr#x###",socket)) {
-      vwritelog("Insecure parents found. Parent dirs of %s must be root:root owned and 'other' with sticky bit set",socket);
+    const char socketX[]= XSOCKETDIR "X0";//BUG corregir si DISPLAY esta definida?
+    if (!check_parents("Insecure parent: %s. Minimal requirements are root:root o+t","--xr#xr#x###",socketX)) {
+      vwritelog("Insecure parents found. Parent dirs of %s must be root:root owned and 'other' with sticky bit set",socketX);
       goto cleanup;
     }
   }
