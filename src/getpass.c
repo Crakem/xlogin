@@ -38,6 +38,7 @@
 #include <termios.h>
 #include <stdlib.h> //free
 #include <string.h> //memcpy
+#include <errno.h>
 
 char* getpass2 (const char *const prompt);
 
@@ -60,7 +61,7 @@ char* getpass2 (const char *const prompt) {
 
   /* Turn echoing off if it is on now.  */
   if (tcgetattr (fileno (fp), &t) < 0) {
-    fprintf(stderr,"Failed to get tty attributes: %m");//BUG check status?
+    fprintf(stderr,"Failed to get tty attributes: %s",strerror(errno));//BUG check status?
     return NULL;
   }
   
@@ -69,7 +70,7 @@ char* getpass2 (const char *const prompt) {
   //to = t;//BUG, works??
   t.c_lflag &= ~(ECHO|ISIG);
   if (tcsetattr(fileno(fp), TCSAFLUSH, &t) < 0) {
-    fprintf(stderr,"Failed to set terminal attributes: %m");
+    fprintf(stderr,"Failed to set terminal attributes: %s",strerror(errno));
     return NULL;      
   }
 
@@ -81,7 +82,7 @@ char* getpass2 (const char *const prompt) {
   
   //fflush_unlocked(fp);
   if (fflush(fp)!=0) {
-    fprintf(stderr,"Failed to get tty attributes: %m");
+    fprintf(stderr,"Failed to get tty attributes: %s",strerror(errno));
     return NULL;
   }
   
@@ -89,12 +90,12 @@ char* getpass2 (const char *const prompt) {
   nread = getline(&buf, &bufsize, fp);
   if (nread < (ssize_t) 0) {
     free(buf);
-    fprintf(stderr,"Failed to get password line: %m");
+    fprintf(stderr,"Failed to get password line: %s",strerror(errno));
     return NULL;
   }
 
   if (buf==NULL) {
-    fprintf(stderr,"Error occured, password reading success but buffer filling failed: %m");
+    fprintf(stderr,"Error occured, password reading success but buffer filling failed: %s",strerror(errno));
     return NULL;    
   }
   
@@ -110,14 +111,14 @@ char* getpass2 (const char *const prompt) {
 
   /* Restore the original setting.  */
   if (tcsetattr(fileno (fp), TCSAFLUSH, &to)<0) {
-    fprintf(stderr,"Failed to restore terminal attributes: %m");
+    fprintf(stderr,"Failed to restore terminal attributes: %s",strerror(errno));
     return NULL;
   }
 
   funlockfile(fp);
 
   if (fclose(fp)!=0) {
-    fprintf(stderr,"Failed closing /dev/tty: %m");
+    fprintf(stderr,"Failed closing /dev/tty: %s",strerror(errno));
     return NULL;
   }
   return buf;

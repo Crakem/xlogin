@@ -272,7 +272,7 @@ static bool set_envvar(char const envvarName[MAX_PATH], const char *const format
 static bool set_utmp(char name[FIELDSZ], pid_t child_sid, const char* ttyNumber);
 //externs
 extern bool vsnprintf_managed(char *str, const int size, const char *const format, ...);
-extern void vwritelog(const char *const template, ...);//issue %m for getting strerro(errno)
+extern void vwritelog(const char *const template, ...);//issue %m for getting strerror(errno)
 extern char* getpass2(const char *const prompt);
 
 #ifdef TESTUNIT
@@ -310,10 +310,10 @@ static void ewritelog(const char *const msg) {
 #ifdef USE_SYSLOG
   //man 3 syslog
   openlog(NULL,LOG_ODELAY,LOG_DAEMON);
-  syslog(LOG_CRIT,"%s: %m",msg);
+  syslog(LOG_CRIT,"%s: %s",msg,strerror(errno));
   closelog();
 #else
-  vwritelog("%s: %m\n",msg);
+  vwritelog("%s: %s\n",msg,strerror(errno));
 #endif
 }
 static void writelog(const char *const msg) {
@@ -541,7 +541,7 @@ static bool setup_xauth(char authfile[AUTHFILE_SZ]) {
       wordexp_t p;
       const int err=wordexp(xauthline, &p, 0);
       if ( err !=0 ) {
-	vwritelog("Failed executing xauth with wordexp (wordexp error: %d): %m",err);
+	vwritelog("Failed executing xauth with wordexp (wordexp error: %d): %s",err,strerror(errno));
 	_exit(EXIT_FAILURE);
       }
       char* *const prog = p.we_wordv;
@@ -685,7 +685,7 @@ static pid_t start_xserver(char *const default_vt) {
   //const int socketFd = open(socket,O_NOCTTY | O_NOFOLLOW | O_NONBLOCK | O_PATH);//??
   const int socketdirFd = open(socketdir, O_NOCTTY | O_NOFOLLOW | O_NONBLOCK | O_RDONLY);
   if (socketdirFd==-1) {
-    vwritelog("Failed to open file descriptor to xserver socket directory '%s' : %m",socketdir);
+    vwritelog("Failed to open file descriptor to xserver socket directory '%s' : %s",socketdir,strerror(errno));
     goto cleanupx;
   }
 
@@ -785,7 +785,7 @@ static bool set_envvar(const char *const envvarName, const char *const format, c
   }
   //try setting value overwriting
   if (setenv(envvarName,envvar,1)!=0){
-    vwritelog("Failed to set '%s' environment variable: %m",envvarName);
+    vwritelog("Failed to set '%s' environment variable: %s",envvarName,strerror(errno));
     return false;
   }
   return true;
@@ -1084,9 +1084,9 @@ static bool read_valid_line_from_file(FILE* *const fp_ptr, const char *const fil
   do {
     if (fgets(linetmp,maxpath,fp)==NULL) {//error or read with no chars and EOF
       if (feof(fp)==0) {//error
-	vwritelog("Failed to read %s values: %m",filename);
+	vwritelog("Failed to read %s values: %s",filename,strerror(errno));
 	if (fclose(fp)!=0) {
-	  vwritelog("Failed to close %s file pointer: %m",filename);
+	  vwritelog("Failed to close %s file pointer: %s",filename,strerror(errno));
 	}
 	*fp_ptr=NULL; //flag meaning fp was closed because error
       //} else {//eof and no chars
@@ -1226,7 +1226,7 @@ static bool validate_fstype(const char *const path, __fsword_t fstype) {
   struct statfs buf;
   memset(&buf,0,sizeof(buf));
   if (statfs(path,&buf)!=0) {
-    vwritelog("Error getting fs info for path %s (%m)",path);
+    vwritelog("Error getting fs info for path %s (%s)",path,strerror(errno));
     return false;
   }
   if (buf.f_type!=fstype) {
@@ -1419,7 +1419,7 @@ static bool got_valid_line(const bool hasShell, const char sessionrc[MAX_PATH], 
   //open file, make action each line except last, take data last line and close file
   FILE* fp=fopen(sessionrc,"r");
   if (fp==NULL) {
-    vwritelog("Error openning '%s' file: %m",sessionrc);
+    vwritelog("Error openning '%s' file: %s",sessionrc,strerror(errno));
     return false;
   }
   bool success=false;
@@ -1439,7 +1439,7 @@ static bool got_valid_line(const bool hasShell, const char sessionrc[MAX_PATH], 
   if (fp!=NULL) {
     if (fclose(fp)!=0) {
       fp=NULL;
-      vwritelog("Failed to close file pointer to '%s': %m",sessionrc);
+      vwritelog("Failed to close file pointer to '%s': %s",sessionrc,strerror(errno));
       return false;
     }
     fp=NULL;
@@ -1521,7 +1521,7 @@ static bool action_env_line(bool *const success, const bool hasShell, char line[
     if (!include(filter,name)) {
       //vwritelog("Env var accepted '%s=%s' (sz: %d)",name,value,strlen(name)); //BUG: al descomentar los vwrite, a veces casca (puede que setenv falle tb)
       if (setenv(name,value,0)!=0) {//fix var not overwritting
-	vwritelog("Failed setting environment with %s: %m",name);
+	vwritelog("Failed setting environment with %s: %s",name,strerror(errno));
 	*success=false;
 	eof=true;
       }
@@ -1573,7 +1573,7 @@ static bool load_pam_env(const struct pamdata *const pampst) {
 	//vwritelog("Accepted environment var '%s'",var);//dont list envvar contents to syslog
 	if (getenv(var)==NULL) {//don't overwrite values
 	  if (putenv(var)!=0) {//bring here variables defined by pam_systemd (XDG_RUNTIME_DIR, etc)
-	    vwritelog("Failed importing environment var '%s': %m",var);
+	    vwritelog("Failed importing environment var '%s': %s",var,strerror(errno));
 	    return false;
 	  }
 	}
@@ -2450,20 +2450,20 @@ static bool check_perms(const int dirFd, const int fileFd, const char* filepath,
   struct stat buf;
   if (dirFd>=0) {//use dirFd if supplied
     if (fstatat(dirFd,filepath,&buf,AT_SYMLINK_NOFOLLOW)<0) {//good in sticky dirs or files we cant get a fd
-      fprintf(stderr,"Could not read file %s: %m\n",filepath);
-      vwritelog("Could not read file %s: %m",filepath);
+      fprintf(stderr,"Could not read file %s: %s\n",filepath,strerror(errno));
+      vwritelog("Could not read file %s: %s",filepath,strerror(errno));
       return false;
     }
   } else if (fileFd>=0) {//use fileFd if supplied
     if (fstat(fileFd,&buf)<0) {
-      fprintf(stderr,"Could not read file %s: %m\n",filepath);
-      vwritelog("Could not read file %s: %m",filepath);
+      fprintf(stderr,"Could not read file %s: %s\n",filepath,strerror(errno));
+      vwritelog("Could not read file %s: %s",filepath,strerror(errno));
       return false;
     }
   } else {
     if (stat(filepath,&buf)<0) {
-      fprintf(stderr,"Could not read file %s: %m\n",filepath);
-      vwritelog("Could not read file %s: %m",filepath);
+      fprintf(stderr,"Could not read file %s: %s\n",filepath,strerror(errno));
+      vwritelog("Could not read file %s: %s",filepath,strerror(errno));
       return false;
     }
   }
@@ -2566,7 +2566,7 @@ static bool set_utmp(char name[FIELDSZ], pid_t child_sid, const char* ttyNumber)
   const struct group* utmpgrpst=getgrnam(utmp_group_name);
   if (utmpgrpst==NULL) {
     if (errno!=0) {
-      vwritelog("Failed to get gid of '%s' group: %m",utmp_group_name);
+      vwritelog("Failed to get gid of '%s' group: %s",utmp_group_name,strerror(errno));
     } else {
       vwritelog("Utmp group name '%s' not found",utmp_group_name);
     }
@@ -3165,7 +3165,7 @@ int main(int argc,char *argv[]) {
   //dont track changes because runs before child change sid
   //const pid_t child_sid=getsid(child_pid); //getpgid,getpgrp
   //if (child_sid==-1) {
-  //  vwritelog("Error getting childs process group (child_pid: %d): %m",child_pid);
+  //  vwritelog("Error getting childs process group (child_pid: %d): %s",child_pid,strerror(errno));
   //}
 
   //wait immediate child
@@ -3179,7 +3179,7 @@ int main(int argc,char *argv[]) {
   //kill child_pid because its child_sid
   if (killpg(child_pid, SIGINT)!=0) {//non fatal
     if (errno!=ESRCH) {//no process found, good, no childs to kill
-      vwritelog("Failed to kill child process group %d: %m",child_pid);
+      vwritelog("Failed to kill child process group %d: %s",child_pid,strerror(errno));
       //main_failure(cleanup);
     }
   }
@@ -3210,11 +3210,11 @@ cleanup:
     //const pid_t child_sid=getsid(child_pid);
     //const pid_t child_sid=getsid(0);//for killing process group
     if (child_sid==-1) {
-      vwritelog("Error getting childs process group (child_pid: %d): %m",child_pid);
+      vwritelog("Error getting childs process group (child_pid: %d): %s",child_pid,strerror(errno));
     } else {
       //killpg(child_sid, SIGINT);//no matter if fails
       if (killpg(child_sid, SIGINT)!=0) {
-	vwritelog("Failed to kill child process group %d: %m",child_sid);
+	vwritelog("Failed to kill child process group %d: %s",child_sid,strerror(errno));
 	//exit(EXIT_FAILURE);
       }
     }
