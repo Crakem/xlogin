@@ -60,11 +60,14 @@ AC_FUNC_MALLOC
 AC_CHECK_FUNCS([alarm dup2 getspnam gettimeofday memset putenv setenv socket strdup strerror strrchr strstr])
 
 # Check for system services
+#systemd: /usr/lib/systemd/systemd but use journalctl
+#collected on: archlinux.org/packages portagefilelist.de
+#list refers to: metalog rsyslog socklog busybox? sysklogd syslog-ng systemd
 AC_ARG_WITH([syslog],
             [AS_HELP_STRING([--without-syslog],[disable support for syslog])],
             [],
             [
-		AC_CHECK_PROGS([SYSLOG],[syslog rsyslog syslog-ng],[none],[/usr/sbin/$PATH_SEPARATOR/sbin$PATH_SEPARATOR$PATH])
+		AC_CHECK_PROGS([SYSLOG],[metalog rsyslogd socklog syslog syslogd syslog-ng journalctl],[none],[/usr/sbin/$PATH_SEPARATOR/sbin$PATH_SEPARATOR$PATH])
 		AS_IF([test "x$SYSLOG" != xnone],[AC_DEFINE([USE_SYSLOG], [1], [Define if you have syslog])],[])
 	    ])
 

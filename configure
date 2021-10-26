@@ -4894,13 +4894,16 @@ done
 
 
 # Check for system services
+#systemd: /usr/lib/systemd/systemd but use journalctl
+#collected on: archlinux.org/packages portagefilelist.de
+#list refers to: metalog rsyslog socklog busybox? sysklogd syslog-ng systemd
 
 # Check whether --with-syslog was given.
 if test "${with_syslog+set}" = set; then :
   withval=$with_syslog;
 else
 
-		for ac_prog in syslog rsyslog syslog-ng
+		for ac_prog in metalog rsyslogd socklog syslog syslogd syslog-ng journalctl
 do
   # Extract the first word of "$ac_prog", so it can be a program name with args.
 set dummy $ac_prog; ac_word=$2
