@@ -641,21 +641,36 @@ static pid_t start_xserver(char *const default_vt) {
     ewritelog("Failed to exec xserver");
   }
   //parent
-  //setup catcher for SIGUSR1, xserver send us when ready
-  if (signal(SIGUSR1,sigIgnore)==SIG_ERR) {
-    writelog("Failed to setup xserver sigusr1 catcher");
-    exit(EXIT_FAILURE);
+  {//setup signal handlers
+    typedef void (*sighandler_t)(int);
+    //setup catcher for SIGUSR1, xserver send us when ready
+    const sighandler_t prevSigUsr1=signal(SIGUSR1, sigIgnore);
+    if (prevSigUsr1==SIG_ERR) {
+      writelog("Failed to setup xserver sigusr1 catcher");
+      exit(EXIT_FAILURE);
+    }
+    //wait XSERVER_WAIT_TIMEOUT to xserver ready
+    const sighandler_t prevSigAlarm=signal(SIGALRM, sigAbort);
+    if (prevSigAlarm==SIG_ERR) {
+      writelog("Failed to setup xserver timeout catcher");
+      exit(EXIT_FAILURE);
+    }
+    //esperar y finalizar si no llega sigusr1
+    //waitpid(pid,NULL,0); //espera indefinidamente
+    alarm(XSERVER_WAIT_TIMEOUT);
+    pause();//wait sigusr1 from xserver
+    alarm(0);
+    //restore handlers
+    if (signal(SIGUSR1,prevSigUsr1)==SIG_ERR) {
+      writelog("Failed to restore sigusr1 catcher");
+      exit(EXIT_FAILURE);
+    }
+    //wait XSERVER_WAIT_TIMEOUT to xserver ready
+    if (signal(SIGALRM,prevSigAlarm)==SIG_ERR) {
+      writelog("Failed to restore timeout catcher");
+      exit(EXIT_FAILURE);
+    }
   }
-  //wait XSERVER_WAIT_TIMEOUT to xserver ready
-  if (signal(SIGALRM,sigAbort)==SIG_ERR) {
-    writelog("Failed to setup xserver timeout catcher");
-    exit(EXIT_FAILURE);
-  }
-  //esperar y finalizar si no llega sigusr1
-  //waitpid(pid,NULL,0); //espera indefinidamente
-  alarm(XSERVER_WAIT_TIMEOUT);
-  pause();//wait sigusr1 from xserver
-  alarm(0);
   //for display :0 (ver opcion fd de Xorg)
   //const char socket[]="/tmp/.X11-unix/X0";
   //const char socket[]= _PATH_TMP ".X11-unix/X0";//BUG corregir si DISPLAY esta definida?
