@@ -1138,19 +1138,24 @@ static bool valid_proc_line(const char str[MAX_PATH], void** argv) {
   //proc /proc proc rw,nosuid,nodev,noexec,relatime,hidepid=invisible 0 0
   if (strcmp("/proc",argvline[1])==0) {
     result=true;
+    //is valid, pack work done
+    struct procdata {//pairs with action_proc_line
+      char* stptr;
+      char** argv;
+    };
+    struct procdata* stproc=(struct procdata*) malloc(sizeof(struct procdata));
+    if (stproc==NULL){
+      ewritelog("Failed malloc while validating proc line");
+      exit(EXIT_FAILURE);
+    }
+    stproc->stptr=cpstr;
+    stproc->argv=argvline;
+    *argv=stproc;
+  } else {
+    //invalid, free resources
+    free(cpstr);cpstr=NULL;
+    free(argvline);argvline=NULL;
   }
-  struct procdata {//pairs with action_proc_line
-    char* stptr;
-    char** argv;
-  };
-  struct procdata* stproc=(struct procdata*) malloc(sizeof(struct procdata));
-  if (stproc==NULL){
-    ewritelog("Failed malloc while validating proc line");
-    exit(EXIT_FAILURE);
-  }
-  stproc->stptr=cpstr;
-  stproc->argv=argvline;
-  *argv=stproc;
   return result;
 }
 
