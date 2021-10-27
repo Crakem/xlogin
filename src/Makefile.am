@@ -1,4 +1,5 @@
 bin_PROGRAMS = xlogin
+noinst_HEADERS = defconfig.h
 xlogin_SOURCES = main.c getpass.c vfuncs.c
 #xlogin_CFLAGS=-O3 -pipe -fomit-frame-pointer -pie -fpic -fstack-protector-strong
 xlogin_LDADD=-lutil @LIBPAM@
