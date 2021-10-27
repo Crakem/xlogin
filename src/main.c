@@ -1472,25 +1472,23 @@ static bool valid_env_line(const char line[MAX_PATH], void** argv) {
       return false;
     }
   }
-  //check is pair
-  {
-    char* name=strdup(line);//needed because we change '=' with '\0'
+  char* name=strdup(line);//needed because we change '=' with '\0'
+  {//check is pair
     if (name==NULL) {
       ewritelog("Error duplicating string while reading enviroment file");
-      return false;
+      _exit(EXIT_FAILURE);
     }
     char* value=strrchr(name,'=');//point to last '=' char
     if (value==NULL) {
       vwritelog("Invalid environment var assignation, missing equal char: '%s'",name);
-      return false;//not a pair
+      goto failed;//not a pair
     }
     *value='\0';//overwrite '=' with NULL
     value++;//points to value //if envvar has only 'NAME=' this points to '\0'
     if (*value=='\0') {//dont import vars as 'NAME='
-      return false;
+      goto failed;
     }
-    //allocate mem for argv array
-    {
+    {//envvar looks good, allocate mem for argv array
       char** argvline=(char**) malloc((3*sizeof(char*)));
       if (argvline==NULL){
 	ewritelog("Failed malloc while validating env line");
@@ -1503,6 +1501,9 @@ static bool valid_env_line(const char line[MAX_PATH], void** argv) {
     }
   }
   return true;
+ failed:
+  free(name);name=NULL;
+  return false;
 }
 
 /*
