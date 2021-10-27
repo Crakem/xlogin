@@ -242,7 +242,7 @@ static bool load_env(void);
 static bool exists_pamconfig(void);
 static bool load_pam_env(const struct pamdata *const pampst);
 #endif
-static bool waitpid_with_log(const pid_t child_pid);
+static short waitpid_with_log(const pid_t child_pid);
 static bool waitsid_with_log(const pid_t child_sid);
 static void start_session(struct pamdata *const pampst);
 static void strzero(char *const);
@@ -1170,6 +1170,7 @@ static bool action_proc_line(bool *const success, const bool hasShell, char line
   if (!(*success)) {//eof
     writelog("Error getting valid /proc line from file " PROC_MOUNTS);
   } else {
+    //unpack and use data
     struct procdata {//pairs with valid_proc_line
       char* stptr;
       char** argv;
@@ -1400,8 +1401,10 @@ static bool action_logout_line(bool *const success, const bool hasShell, char se
       writelog("Error gettting child process while stopping session");
     } else {
       //wait stop actions
-      if (!waitpid_with_log(child_pid)) {
-	ewritelog("Error waiting child process while stopping session");
+      if (waitpid_with_log(child_pid)<0) {//dont propagate exit_failure in childs
+	writelog("Error waiting child process while stopping session");
+	*success=false;//fail
+	eof=true;//stop reading
       }
     }
   }
@@ -1596,22 +1599,25 @@ static bool load_pam_env(const struct pamdata *const pampst) {
 #endif
 
 /*
- * waitpid_with_log
+ * waitpid_with_log: =0 success, <0 error, >0 error (maybe skippable) in child
+ *                   =1 crash, =2 exit_failure
  */
-static bool waitpid_with_log(const pid_t child_pid) {
+static short waitpid_with_log(const pid_t child_pid) {
   int status=EXIT_FAILURE;
   if (waitpid(child_pid,&status,0)==child_pid) {//child returns
     if (!WIFEXITED(status)) {
       writelog("Child session process crashed");//non fatal because happens
+      return 1;
     } else{
       if (WEXITSTATUS(status)!=EXIT_SUCCESS) {
 	vwritelog("Child session process ended with failure (%d)",WEXITSTATUS(status));
+	return 2;
       }
     }
   } else {//failed waiting
-    return false;
+    return -1;
   }
-  return true;
+  return 0;
 }
 
 /*
@@ -1976,7 +1982,7 @@ static void start_session(struct pamdata *const pampst) {
     free(session);
     session=NULL;
     //wait child of previous step and on completion run logout script
-    if (!waitpid_with_log(child_pid)) {
+    if (waitpid_with_log(child_pid)<0) {//dont propagate exit_failure in childs
       ewritelog("Failed waiting child (session) process from xlogin session manager");
       _exit(EXIT_FAILURE);
     }
@@ -3174,10 +3180,14 @@ int main(int argc,char *argv[]) {
   //  vwritelog("Error getting childs process group (child_pid: %d): %s",child_pid,strerror(errno));
   //}
 
-  //wait immediate child
-  if (!waitpid_with_log(child_pid)) {
-    ewritelog("Failed waiting child (session) process");
-    main_failure(cleanup);
+  {//wait immediate child (session runner)
+    const short result=waitpid_with_log(child_pid);
+    if (result != 0) {//propagate exit_failure in childs
+      if (result<0) {
+	ewritelog("Failed waiting child (session) process");
+      }
+      main_failure(cleanup);
+    }
   }
 
   //vwritelog("Killing pg: %d",child_pid);
