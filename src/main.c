@@ -153,7 +153,7 @@
 #define ENV_FILE "/etc/environment.d/10-gentoo-env.conf"
 #endif
 
-#define PASS_PROMPT "XPassword: "
+#define PASS_PROMPT "Password: "
 
 //#define strzero(str) explicit_bzero(str,strlen(str))
 
