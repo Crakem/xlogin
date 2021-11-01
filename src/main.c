@@ -617,6 +617,28 @@ static pid_t start_xserver(char *const default_vt) {
     ewritelog("Failed to chdir to /");
   }
 
+  {//setup signal handler for Xserver ready status
+    //setup catcher for SIGUSR1, xserver send us SIGUSR1 when ready
+    struct sigaction newSigUsr1;
+    //memset(&newSigUsr1,0,sizeof(newSigUsr1));
+    newSigUsr1.sa_handler=sigIgnore;
+    if(sigemptyset(&newSigUsr1.sa_mask)!=0) {
+      ewritelog("Failed to empty mask for sigusr1");
+      exit(EXIT_FAILURE);
+    }
+    //block SIGUSR1 while parent reach 'sigsuspend' for proper synchronization
+    if (sigaddset(&newSigUsr1.sa_mask,SIGUSR1)!=0) {
+      ewritelog("Failed to add sigusr1 to mask");
+      exit(EXIT_FAILURE);
+    }
+    //if we instruct Xserver to signal us when ready, we need keep sigusr1 handler because x64 gets killed if handler is removed
+    //we need SA_RESTAT because waitpid gets interrupted when xserver signal us with sigusr1
+    newSigUsr1.sa_flags=SA_RESTART;
+    if (sigaction(SIGUSR1,&newSigUsr1,NULL)!=0) {
+      writelog("Failed to setup xserver sigusr1 catcher");
+      exit(EXIT_FAILURE);
+    }
+  }
   const pid_t pid=fork();
   if ( pid < 0 ) {
     //fprintf(stderr,"Failed to fork xserver process\n");
@@ -624,9 +646,21 @@ static pid_t start_xserver(char *const default_vt) {
     exit(EXIT_FAILURE);
   }
   else if (pid==0) {//child
-    if (signal(SIGUSR1, SIG_IGN)==SIG_ERR) {//make server signalling parent with SIGUSR1 when ready (taken from xinit src)
-      writelog("Failed to setup xserver sigusr1 signaler");
-      _exit(EXIT_FAILURE);
+    {//setup signal handler for Xserver ready status unblocked
+      struct sigaction newSigUsr1;
+      //memset(&newSigUsr1,0,sizeof(newSigUsr1));
+      newSigUsr1.sa_handler=SIG_IGN;
+      //create an blocked SIGUSR1 mask
+      if(sigemptyset(&newSigUsr1.sa_mask)!=0) {
+	ewritelog("Failed to empty mask for sigusr1 in child");
+	_exit(EXIT_FAILURE);
+      }
+      //SA_RESETHAND makes X shutdown fail; same for signal approach, makes X fail to start
+      newSigUsr1.sa_flags=0;
+      if (sigaction(SIGUSR1,&newSigUsr1,NULL)!=0) {
+	writelog("Failed to setup xserver sigusr1 catcher in child");
+	_exit(EXIT_FAILURE);
+      }
     }
 
     //this don't change socket perms
@@ -643,34 +677,34 @@ static pid_t start_xserver(char *const default_vt) {
     ewritelog("Failed to exec xserver");
   }
   //parent
-  {//setup signal handlers
-    typedef void (*sighandler_t)(int);
-    //setup catcher for SIGUSR1, xserver send us when ready
-    const sighandler_t prevSigUsr1=signal(SIGUSR1, sigIgnore);
-    if (prevSigUsr1==SIG_ERR) {
-      writelog("Failed to setup xserver sigusr1 catcher");
+  {//setup signal handler for Xserver wait timeout
+    struct sigaction newSigAlarm;
+    //memset(&newSigAlarm,0,sizeof(newSigAlarm));
+    newSigAlarm.sa_handler=sigAbort;
+    if(sigemptyset(&newSigAlarm.sa_mask)!=0) {
+      ewritelog("Failed to empty mask for sigalarm");
       exit(EXIT_FAILURE);
     }
-    //wait XSERVER_WAIT_TIMEOUT to xserver ready
-    const sighandler_t prevSigAlarm=signal(SIGALRM, sigAbort);
-    if (prevSigAlarm==SIG_ERR) {
+    newSigAlarm.sa_flags=SA_RESETHAND;
+    if (sigaction(SIGALRM,&newSigAlarm,NULL)!=0) {
       writelog("Failed to setup xserver timeout catcher");
       exit(EXIT_FAILURE);
     }
     //esperar y finalizar si no llega sigusr1
-    //waitpid(pid,NULL,0); //espera indefinidamente
+    //wait XSERVER_WAIT_TIMEOUT to xserver ready
     alarm(XSERVER_WAIT_TIMEOUT);
-    pause();//wait sigusr1 from xserver
-    alarm(0);
-    //restore handlers
-    if (signal(SIGUSR1,prevSigUsr1)==SIG_ERR) {
-      writelog("Failed to restore sigusr1 catcher");
+    //create an unblocked SIGUSR1 mask
+    sigset_t unblockedmask;
+    if(sigemptyset(&unblockedmask)!=0) {
+      ewritelog("Failed to make empty mask set");
       exit(EXIT_FAILURE);
     }
-    //wait XSERVER_WAIT_TIMEOUT to xserver ready
-    if (signal(SIGALRM,prevSigAlarm)==SIG_ERR) {
-      writelog("Failed to restore timeout catcher");
-      exit(EXIT_FAILURE);
+    sigsuspend(&unblockedmask);//wait sigusr1 from xserver, unblocking SIGUSR1 (maybe signal is pending)
+    alarm(0);
+    //unblock sigusr1
+    if (sigprocmask(SIG_SETMASK,&unblockedmask,NULL)!=0) {
+	ewritelog("Failed to unblock sigusr1");
+	exit(EXIT_FAILURE);
     }
   }
   //for display :0 (ver opcion fd de Xorg)
