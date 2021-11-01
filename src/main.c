@@ -671,8 +671,10 @@ static pid_t start_xserver(char *const default_vt) {
     //char *const xserver[]={default_xserver,display,"vt07","-retro","-nolisten","tcp","-nolisten","local","-auth",authfile,'\0'};
     //char *const xserver[]={default_xserver,display,"vt08","vt07","-retro","-nolisten","tcp","-nolisten","local","-auth",authfile,'\0'}; //works
     //char *const xserver[]={default_xserver,display,default_vt,"-retro","-nolisten","tcp","-nolisten","local","-auth",authfile,'\0'};
-    char *const xserver[]={default_xserver,display,default_vt,"-novtswitch","-nolisten","tcp","-nolisten","local","-auth",authfile,'\0'};
-    //char *const xserver[]={default_xserver,display,default_vt,"-nolisten","tcp","-nolisten","local","-auth",authfile,'\0'};
+    //char *const xserver[]={default_xserver,display,default_vt,"-novtswitch","-nolisten","tcp","-nolisten","local","-auth",authfile,'\0'};
+    //novtswitch doesnt help on error conditions
+    char *const xserver[]={default_xserver,display,default_vt,"-nolisten","tcp","-nolisten","local","-auth",authfile,'\0'};
+    //sleep(30);
     execvp(xserver[0],xserver);
     ewritelog("Failed to exec xserver");
   }
