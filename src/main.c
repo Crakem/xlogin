@@ -231,7 +231,7 @@ static void fork_prog(const bool hasShell, char sessionbin[MAX_PATH], pid_t* chi
 static bool cmd2buf(const bool eof, char sessionbintmp[MAX_PATH], char sessionbin[MAX_PATH]);
 static bool action_login_line(bool *const success, const bool hasShell, char sessionbin[MAX_PATH], void** argv);
 static bool action_logout_line(bool *const success, const bool hasShell, char sessionbin[MAX_PATH], void** argv);
-static bool got_valid_line(const bool hasShell, const char sessionrc[MAX_PATH], bool (*validate)(const char *const, void**),
+static bool got_valid_line(const bool hasShell, const char *const sessionrc, bool (*validate)(const char *const, void**),
 			   bool (*action)(bool *const, const bool, char[MAX_PATH], void**), char sessionbin[MAX_PATH]);
 static bool include(const char* *const patterns,const char *const str);
 #ifndef USE_PAM
@@ -268,7 +268,7 @@ static bool set_pam_timeout(void);
 #endif
 static int auth_user(struct pamdata *const pampst);
 static bool snprintf_managed(char *str, const int size, const char *const format, const char *const value);
-static bool set_envvar(char const envvarName[MAX_PATH], const char *const formatString, const char *const value);
+static bool set_envvar(const char *const envvarName, const char *const formatString, const char *const value);
 static bool set_utmp(char name[FIELDSZ], pid_t child_sid, const char* ttyNumber);
 //externs
 extern bool vsnprintf_managed(char *str, const int size, const char *const format, ...);
@@ -1451,7 +1451,7 @@ static bool action_logout_line(bool *const success, const bool hasShell, char se
  * got_valid_line: read file sessionrc and store last valid line in sessionbin
  * valid lines choosed with 'validate' function, 'action' function could continue/finish after a successful find and change successful status with more test
  */
-static bool got_valid_line(const bool hasShell, const char sessionrc[MAX_PATH], bool (*validate)(const char *const, void**),
+static bool got_valid_line(const bool hasShell, const char *const sessionrc, bool (*validate)(const char *const, void**),
 			   bool (*action)(bool *const, const bool, char[MAX_PATH], void**), char line[MAX_PATH]) {//BUG: set MAX_LINE to 'line'?
   bool eof=false;
 /*
