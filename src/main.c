@@ -3197,7 +3197,10 @@ int main(int argc,char *argv[]) {
     main_failure(cleanup);
   } else if (child_pid == 0) {//child
     //create a session
-    if (setsid()==((pid_t) -1)) { ewritelog("Failed to create process group for child session"); };
+    if (setsid()==((pid_t) -1)) {
+      ewritelog("Failed to create process group for child session");
+      _exit(EXIT_FAILURE);
+    }
 #ifdef USE_PAM
     start_session(&pamst);
 #else
