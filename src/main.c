@@ -3229,6 +3229,7 @@ int main(int argc,char *argv[]) {
   //vwritelog("Killing pg: %d",child_pid);
 
   //kill child_pid because its child_sid
+  //with SIGHUP process do not end
   if (killpg(child_pid, SIGINT)!=0) {//non fatal
     if (errno!=ESRCH) {//no process found, good, no childs to kill
       vwritelog("Failed to kill child process group %d: %s",child_pid,strerror(errno));
